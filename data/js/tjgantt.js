@@ -33,12 +33,12 @@
   };
 
   /* ── Layout ── */
-  var ROW_H  = 20;   // pixels per task row
-  var HDR_H  = 40;   // two-row header height (20px each)
+  var ROW_H         = 20;   // pixels per task row
+  var HDR_H         = 40;   // two-row header height (20px each)
+  var SCROLLBAR_W   = 20;   // reserved width for the left-panel scrollbar
 
-  /* Left-panel column definitions.  id must match keys available in the
-   * task/scenario JSON.  'bsi' is mapped to t.wbs.  'chart' is skipped
-   * (it IS the SVG panel).                                                */
+  /* Left-panel column definitions.
+   * 'bsi' maps to t.wbs.  'chart' is skipped (it IS the SVG panel).      */
   var ALL_COLS = {
     bsi     : { title: 'WBS',     width: 48,  align: 'left'  },
     name    : { title: 'Name',    width: 180, align: 'left'  },
@@ -46,7 +46,7 @@
     end     : { title: 'End',     width: 86,  align: 'left'  },
     effort  : { title: 'Effort',  width: 52,  align: 'right' },
     cost    : { title: 'Cost',    width: 64,  align: 'right' },
-    revenue : { title: 'Revenue', width: 64,  align: 'right' }
+    revenue : { title: 'Revenue', width: 72,  align: 'right' }
   };
 
   /* ───────────────────────── Bootstrap ───────────────────────────────── */
@@ -60,23 +60,25 @@
   var tasks    = data.tasks;
   var project  = data.project;
   var sc0      = (project.scenarios || [])[0] || 'plan';
+  var iconBase = project.iconBase || null;   // e.g. "icons/" or null
 
-  /* Columns to show: taken from project.columns (set by Ruby), filtered to
-   * known definitions and excluding 'chart'.                               */
+  /* Columns to show */
   var colIds = (project.columns || []).filter(function (id) {
     return id !== 'chart' && ALL_COLS[id];
   });
   if (!colIds.length) { colIds = ['bsi', 'name', 'start', 'end']; }
 
-  var LEFT_W = colIds.reduce(function (s, id) { return s + ALL_COLS[id].width; }, 0);
+  /* Left panel width = sum of column widths + scrollbar reservation */
+  var LEFT_CONTENT_W = colIds.reduce(function (s, id) { return s + ALL_COLS[id].width; }, 0);
+  var LEFT_W         = LEFT_CONTENT_W + SCROLLBAR_W;
 
   /* ── Per-task display info ── */
   tasks.forEach(function (t) {
     var sc = t.scenarios[sc0] || {};
-    t._start      = sc.start ? new Date(sc.start) : null;
-    t._end        = sc.end   ? new Date(sc.end)   : null;
-    t._complete   = (sc.complete != null) ? sc.complete : 0;
-    t._milestone  = !!sc.milestone;
+    t._start       = sc.start ? new Date(sc.start) : null;
+    t._end         = sc.end   ? new Date(sc.end)   : null;
+    t._complete    = (sc.complete != null) ? sc.complete : 0;
+    t._milestone   = !!sc.milestone;
     t._isContainer = !!t.isContainer;
   });
 
@@ -89,8 +91,9 @@
 
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
-  wrapper.style.cssText = 'display:flex;width:100%;height:600px;overflow:hidden;' +
-                          'font-family:sans-serif;font-size:11px;border:1px solid #9a9a9a;';
+  wrapper.style.cssText =
+    'display:flex;width:100%;height:600px;overflow:hidden;' +
+    'font-family:sans-serif;font-size:11px;border:1px solid #9a9a9a;';
   container.appendChild(wrapper);
 
   /* ── Left panel ── */
@@ -101,19 +104,23 @@
   wrapper.appendChild(leftPanel);
 
   var table = document.createElement('table');
-  table.style.cssText = 'width:100%;border-collapse:collapse;table-layout:fixed;';
+  /* Use an explicit pixel width so table-layout:fixed doesn't shrink columns
+   * to fit inside the scrollbar-reduced content area.                      */
+  table.style.cssText =
+    'width:' + LEFT_CONTENT_W + 'px;border-collapse:collapse;table-layout:fixed;';
   leftPanel.appendChild(table);
 
   /* Header row */
   var thead = document.createElement('thead');
   table.appendChild(thead);
   var hrow = document.createElement('tr');
-  hrow.style.cssText = 'position:sticky;top:0;z-index:10;' +
+  hrow.style.cssText =
+    'position:sticky;top:0;z-index:10;' +
     'background:' + C.headerBg + ';color:' + C.headerFg + ';';
   thead.appendChild(hrow);
   colIds.forEach(function (id) {
     var def = ALL_COLS[id];
-    var th = document.createElement('th');
+    var th  = document.createElement('th');
     th.textContent = def.title;
     th.style.cssText =
       'padding:2px 4px;text-align:' + def.align + ';width:' + def.width + 'px;' +
@@ -128,38 +135,41 @@
   tasks.forEach(function (t, i) {
     var sc  = t.scenarios[sc0] || {};
     var tr  = document.createElement('tr');
-    tr.style.cssText = 'background:' + ((i % 2 === 0) ? C.rowEven : C.rowOdd) +
-                       ';height:' + ROW_H + 'px;';
+    var bg  = (i % 2 === 0) ? C.rowEven : C.rowOdd;
+    tr.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;' +
+                       (t._isContainer ? 'font-weight:bold;' : '');
 
     colIds.forEach(function (id) {
       var def  = ALL_COLS[id];
-      var text = '';
-      if (id === 'bsi') {
-        text = t.wbs || '';
-      } else if (id === 'name') {
-        var indent = '\u00a0'.repeat(Math.max(0, (t.level - 1) * 2));
-        var icon   = t._isContainer ? '▸ ' : (t._milestone ? '◆ ' : '  ');
-        text = icon + indent + (t.name || '');
-      } else if (id === 'start') {
-        text = sc.start || '';
-      } else if (id === 'end') {
-        text = sc.end || '';
-      } else if (id === 'effort') {
-        text = sc.effort || '';
-      } else if (id === 'cost') {
-        text = sc.cost || '';
-      } else if (id === 'revenue') {
-        text = sc.revenue || '';
-      }
-
-      var td = document.createElement('td');
-      td.textContent = text;
-      td.title = text;
+      var td   = document.createElement('td');
       td.style.cssText =
         'padding:1px 4px;overflow:hidden;white-space:nowrap;' +
         'text-align:' + def.align + ';width:' + def.width + 'px;' +
         'border-bottom:1px solid #ccc;';
-      if (id === 'name' && t._isContainer) { td.style.fontWeight = 'bold'; }
+
+      if (id === 'name') {
+        /* Icon + indented name */
+        if (iconBase) {
+          var img = document.createElement('img');
+          img.src = iconBase + (t._isContainer ? 'taskgroup' : 'task') + '.png';
+          img.style.cssText = 'vertical-align:middle;margin-right:3px;';
+          td.appendChild(img);
+        }
+        var indent = document.createTextNode(
+          '\u00a0'.repeat(Math.max(0, (t.level - 1) * 2)) + (t.name || ''));
+        td.appendChild(indent);
+      } else {
+        var text = '';
+        if      (id === 'bsi')     { text = t.wbs || ''; }
+        else if (id === 'start')   { text = sc.start   || ''; }
+        else if (id === 'end')     { text = sc.end     || ''; }
+        else if (id === 'effort')  { text = sc.effort  || ''; }
+        else if (id === 'cost')    { text = sc.cost    || ''; }
+        else if (id === 'revenue') { text = sc.revenue || ''; }
+        td.textContent = text;
+        td.title       = text;
+      }
+
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -203,11 +213,11 @@
     return g;
   }
 
-  /* Header: background group FIRST so text layers render on top */
-  var gHeader    = makeG('tj-header');
-  var gHeaderBg  = makeG('tj-header-bg',    gHeader);   /* ← rendered first */
-  var gHeaderLg  = makeG('tj-header-large', gHeader);
-  var gHeaderSm  = makeG('tj-header-small', gHeader);
+  /* Header: background group FIRST so it renders beneath the tick labels */
+  var gHeader   = makeG('tj-header');
+  var gHeaderBg = makeG('tj-header-bg',    gHeader);
+  var gHeaderLg = makeG('tj-header-large', gHeader);
+  var gHeaderSm = makeG('tj-header-small', gHeader);
 
   var gBody    = makeG('tj-body');
   gBody.setAttribute('transform', 'translate(0,' + HDR_H + ')');
@@ -269,7 +279,9 @@
     while (g.firstChild) { g.removeChild(g.firstChild); }
   }
 
-  /* Adaptive tick configuration based on pixels-per-day */
+  /* Adaptive tick configuration based on pixels-per-day.
+   * Small-tick label at week scale uses the day-of-month of the Monday
+   * (matching the static taskreport header).                              */
   function tickConfig(xScale) {
     var domainMs = xScale.domain()[1] - xScale.domain()[0];
     var rangeW   = xScale.range()[1]  - xScale.range()[0];
@@ -283,9 +295,9 @@
                small: d3.timeMonth.every(3),  smallFmt: d3.timeFormat('%b') };
     } else if (ppd < 15) {
       return { large: d3.timeMonth.every(1),  largeFmt: d3.timeFormat('%b %Y'),
-               small: d3.timeMonday.every(1), smallFmt: d3.timeFormat('W%W') };
+               small: d3.timeMonday.every(1), smallFmt: d3.timeFormat('%d') };
     } else if (ppd < 60) {
-      return { large: d3.timeMonday.every(1), largeFmt: d3.timeFormat('%b W%W'),
+      return { large: d3.timeMonday.every(1), largeFmt: d3.timeFormat('%b %d'),
                small: d3.timeDay.every(1),    smallFmt: d3.timeFormat('%d') };
     } else {
       return { large: d3.timeDay.every(1),    largeFmt: d3.timeFormat('%a %d %b'),
@@ -301,10 +313,14 @@
 
     var cfg  = tickConfig(xScale);
     var w    = getChartWidth();
-    var rowH = HDR_H / 2;   /* 20px per header row */
+    var rowH = HDR_H / 2;
 
-    /* Background — in gHeaderBg which is first child of gHeader */
+    /* Background (in gHeaderBg = first child of gHeader) */
     svgEl('rect', gHeaderBg, { x: 0, y: 0, width: w, height: HDR_H, fill: C.headerBg });
+    svgEl('line', gHeaderBg, { x1: 0, y1: rowH - 0.5, x2: w, y2: rowH - 0.5,
+                                stroke: '#555', 'stroke-width': 1 });
+    svgEl('line', gHeaderBg, { x1: 0, y1: HDR_H - 0.5, x2: w, y2: HDR_H - 0.5,
+                                stroke: '#444', 'stroke-width': 1 });
 
     /* Large ticks — top row */
     var lgTicks = xScale.ticks(cfg.large);
@@ -333,7 +349,7 @@
       svgEl('line', gHeaderSm, { x1: x0, y1: rowH, x2: x0, y2: HDR_H,
                                   stroke: '#555', 'stroke-width': 1 });
       var lx = x0 + 3;
-      if (x1 - lx > 8) {
+      if (x1 - lx > 4) {
         var txt2 = svgEl('text', gHeaderSm, {
           x: lx, y: HDR_H - 4,
           fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif'
@@ -341,13 +357,6 @@
         txt2.textContent = cfg.smallFmt(d);
       }
     });
-
-    /* Bottom border */
-    svgEl('line', gHeaderBg, { x1: 0, y1: HDR_H - 0.5, x2: w, y2: HDR_H - 0.5,
-                                stroke: '#444', 'stroke-width': 1 });
-    /* Mid border between top/bottom header rows */
-    svgEl('line', gHeaderBg, { x1: 0, y1: rowH - 0.5, x2: w, y2: rowH - 0.5,
-                                stroke: '#555', 'stroke-width': 1 });
   }
 
   /* ── Row stripes ── */
@@ -407,42 +416,36 @@
     var w  = Math.max(2, x2 - x);
     var bh = BAR_HALF;
 
-    /* Black border */
     svgEl('rect', g, { x: x, y: yCenter - bh, width: w, height: bh * 2,
                        fill: C.taskbarFrame });
-    /* Blue fill (1px inset) */
     svgEl('rect', g, { x: x + 1, y: yCenter - bh + 1,
                        width: Math.max(0, w - 2), height: bh * 2 - 2,
                        fill: C.taskbar });
-    /* Progress overlay */
     var pct = Math.max(0, Math.min(100, t._complete || 0));
     if (pct > 0) {
-      var pw = Math.max(0, (w - 2) * pct / 100);
       svgEl('rect', g, { x: x + 1, y: yCenter - bh / 2,
-                         width: pw, height: bh, fill: C.progressbar });
+                         width: Math.max(0, (w - 2) * pct / 100),
+                         height: bh, fill: C.progressbar });
     }
   }
 
   function renderContainer(g, xScale, t, yCenter) {
-    var x  = xScale(t._start);
-    var x2 = xScale(t._end);
-    var w  = Math.max(2, x2 - x);
-    var s  = CONT_HALF;
+    var x   = xScale(t._start);
+    var x2  = xScale(t._end);
+    var w   = Math.max(2, x2 - x);
+    var s   = CONT_HALF;
     var top = yCenter - s;
     var mid = yCenter;
     var tip = yCenter + s;
 
-    /* Flat bar */
     svgEl('rect', g, { x: x - s, y: top, width: w + 2 * s, height: s,
                        fill: C.container });
-    /* Left downward jag (triangle centred at x) */
     svgEl('polygon', g, {
-      points: (x - s) + ',' + mid + ' ' + (x + s) + ',' + mid + ' ' + x + ',' + tip,
+      points: (x-s)+','+mid+' '+(x+s)+','+mid+' '+x+','+tip,
       fill: C.container
     });
-    /* Right downward jag (triangle centred at x+w) */
     svgEl('polygon', g, {
-      points: (x+w-s) + ',' + mid + ' ' + (x+w+s) + ',' + mid + ' ' + (x+w) + ',' + tip,
+      points: (x+w-s)+','+mid+' '+(x+w+s)+','+mid+' '+(x+w)+','+tip,
       fill: C.container
     });
   }
@@ -451,10 +454,8 @@
     var cx = xScale(t._start);
     var r  = MS_HALF;
     svgEl('polygon', g, {
-      points: cx + ',' + (yCenter - r) + ' ' +
-              (cx + r) + ',' + yCenter  + ' ' +
-              cx + ',' + (yCenter + r) + ' ' +
-              (cx - r) + ',' + yCenter,
+      points: cx+','+(yCenter-r)+' '+(cx+r)+','+yCenter+' '+
+              cx+','+(yCenter+r)+' '+(cx-r)+','+yCenter,
       fill: C.milestone
     });
   }
@@ -485,10 +486,10 @@
         var pathStr;
         if (x1 < x2) {
           var xMid = x1 + (x2 - x1) / 2;
-          pathStr = 'M' + sx + ',' + sy + ' H' + xMid + ' V' + ey + ' H' + ex;
+          pathStr = 'M'+sx+','+sy+' H'+xMid+' V'+ey+' H'+ex;
         } else {
           var xOut = Math.max(sx + MIN_START_GAP, ex + MIN_END_GAP + 2);
-          pathStr = 'M' + sx + ',' + sy + ' H' + xOut + ' V' + ey + ' H' + ex;
+          pathStr = 'M'+sx+','+sy+' H'+xOut+' V'+ey+' H'+ex;
         }
 
         svgEl('path', gArrows, {

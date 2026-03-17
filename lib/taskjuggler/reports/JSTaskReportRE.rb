@@ -115,12 +115,17 @@ class TaskJuggler
 
       now_date = @project['now'] || TjTime.new
 
+      # Icon base URL — only valid in non-selfcontained mode (same behaviour as
+      # ReportTableCell which skips icons when selfcontained).
+      icon_base = a('selfcontained') ? nil : (a('auxdir').to_s + 'icons/')
+
       project_data = {
         'start'     => @project['start'] ? @project['start'].strftime('%Y-%m-%d') : nil,
         'end'       => @project['end']   ? @project['end'].strftime('%Y-%m-%d')   : nil,
         'now'       => now_date.strftime('%Y-%m-%d'),
         'scenarios' => scenarioNames,
-        'columns'   => requested_cols
+        'columns'   => requested_cols,
+        'iconBase'  => icon_base
       }
 
       gantt_data = {
