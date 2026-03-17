@@ -365,7 +365,7 @@ textreport frame "" {
 }
 
 # A traditional Gantt chart with a project overview.
-taskreport overview "" {
+jstaskreport overview "" {
   header -8<-
     === Project Overview ===
 
@@ -492,9 +492,5 @@ resourcereport resourceGraph "" {
   # We only like to show leaf tasks for leaf resources.
   hidetask ~(isleaf() & isleaf_())
   sorttasks plan.start.up
-}
-
-jstaskreport "Gantt" {
-  scenarios plan
 }
 
