@@ -47,9 +47,18 @@ class TaskJuggler
 
     # Return the report as an Array of XMLElement objects.
     def to_html
+      # Set up a reusable query object for computed attributes.
+      @query = @report.project.reportContexts.last.query.dup
+
       scenarioNames = @scenarios.map { |idx| @project.scenario(idx).id }
 
-      # Build the tasks JSON array as a Ruby string.
+      # Columns requested in the report definition (excluding 'chart' which is
+      # the SVG panel itself).
+      requested_cols = (@report.get('columns') || []).map(&:id).reject { |c| c == 'chart' }
+      # Fall back to a sensible default when none are specified.
+      requested_cols = %w( bsi name start end ) if requested_cols.empty?
+
+      # Build the tasks JSON array.
       tasks_json = @taskList.map do |task|
         scenarios_data = {}
         @scenarios.each do |idx|
@@ -66,16 +75,15 @@ class TaskJuggler
             duration_days = ((t_end - t_start) / 86400.0).round
           end
 
-          complete = task['complete', idx] rescue nil
-          effort   = task['effort', idx] rescue nil
-
           scenarios_data[sc_id] = {
             'start'     => start_str,
             'end'       => end_str,
             'duration'  => duration_days,
-            'complete'  => complete,
+            'complete'  => query_task_num(task, 'complete', idx),
             'milestone' => milestone,
-            'effort'    => effort
+            'effort'    => query_task_str(task, 'effort',  idx),
+            'cost'      => query_task_str(task, 'cost',    idx),
+            'revenue'   => query_task_str(task, 'revenue', idx)
           }
         end
 
@@ -90,7 +98,6 @@ class TaskJuggler
         end
         depends.uniq!
 
-        # WBS string — use sequenceNo-based path through the tree
         wbs = task.get('bsi') rescue nil
         wbs ||= task.fullId
 
@@ -106,11 +113,14 @@ class TaskJuggler
         }
       end
 
+      now_date = @project['now'] || TjTime.new
+
       project_data = {
         'start'     => @project['start'] ? @project['start'].strftime('%Y-%m-%d') : nil,
         'end'       => @project['end']   ? @project['end'].strftime('%Y-%m-%d')   : nil,
-        'now'       => TjTime.new.strftime('%Y-%m-%d'),
-        'scenarios' => scenarioNames
+        'now'       => now_date.strftime('%Y-%m-%d'),
+        'scenarios' => scenarioNames,
+        'columns'   => requested_cols
       }
 
       gantt_data = {
@@ -151,10 +161,33 @@ class TaskJuggler
 
     private
 
+    # Query a task attribute and return the numeric result (or nil).
+    def query_task_num(task, attr, idx)
+      @query.property    = task
+      @query.attributeId = attr
+      @query.scenarioIdx = idx
+      @query.process
+      @query.to_num
+    rescue
+      nil
+    end
+
+    # Query a task attribute and return the formatted string result (or nil).
+    def query_task_str(task, attr, idx)
+      @query.property    = task
+      @query.attributeId = attr
+      @query.scenarioIdx = idx
+      @query.process
+      s = @query.to_s
+      s.empty? ? nil : s
+    rescue
+      nil
+    end
+
     # Locate a data file using AppConfig.dataDirs (same mechanism as CSS).
     def find_data_file(relative_path)
-      dir_part  = File.dirname(relative_path)   # e.g. 'data/js'
-      base_name = File.basename(relative_path)  # e.g. 'd3.min.js'
+      dir_part  = File.dirname(relative_path)
+      base_name = File.basename(relative_path)
       dirs = AppConfig.dataDirs(dir_part)
       dirs.each do |dir|
         candidate = File.join(dir, base_name)
