@@ -18,6 +18,7 @@ require 'taskjuggler/PropertyTreeNode'
 require 'taskjuggler/reports/AccountListRE'
 require 'taskjuggler/reports/TextReport'
 require 'taskjuggler/reports/TaskListRE'
+require 'taskjuggler/reports/JSTaskReportRE'
 require 'taskjuggler/reports/ResourceListRE'
 require 'taskjuggler/reports/TraceReport'
 require 'taskjuggler/reports/TagFile'
@@ -132,6 +133,8 @@ class TaskJuggler
         @content = TagFile.new(self)
       when :textreport
         @content = TextReport.new(self)
+      when :jstaskreport
+        @content = JSTaskReportRE.new(self)
       when :taskreport
         @content = TaskListRE.new(self)
       when :tracereport
