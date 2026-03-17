@@ -89,6 +89,9 @@ class TaskJuggler
         when :html
           generateHTML
           copyAuxiliaryFiles
+        when :htmljs
+          generateHTMLJS
+          copyAuxiliaryFiles
         when :csv
           generateCSV
         when :ctags
@@ -133,8 +136,6 @@ class TaskJuggler
         @content = TagFile.new(self)
       when :textreport
         @content = TextReport.new(self)
-      when :jstaskreport
-        @content = JSTaskReportRE.new(self)
       when :taskreport
         @content = TaskListRE.new(self)
       when :tracereport
@@ -259,6 +260,21 @@ EOT
       rescue IOError, SystemCallError
         error('write_html', "Cannot write to file #{fileName}.\n#{$!}",
               sourceFileInfo)
+      end
+    end
+
+    # Generate an HTML version of the report with an interactive JavaScript
+    # Gantt chart. Only taskreport uses JSTaskReportRE; all other report types
+    # fall back to standard HTML output.
+    def generateHTMLJS
+      if @typeSpec == :taskreport
+        saved_content = @content
+        @content = JSTaskReportRE.new(self)
+        @content.generateIntermediateFormat
+        generateHTML
+        @content = saved_content
+      else
+        generateHTML
       end
     end
 

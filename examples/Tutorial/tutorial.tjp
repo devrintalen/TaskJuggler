@@ -365,7 +365,8 @@ textreport frame "" {
 }
 
 # A traditional Gantt chart with a project overview.
-jstaskreport overview "" {
+taskreport overview "" {
+  formats htmljs
   header -8<-
     === Project Overview ===
 

@@ -3145,6 +3145,11 @@ EOT
     })
     descr('Generate a web page (HTML file)')
 
+    pattern(%w( _htmljs ), lambda {
+      :htmljs
+    })
+    descr('Generate a web page (HTML file) with an interactive JavaScript Gantt chart. Only supported for taskreport; all other report types fall back to standard HTML output.')
+
     pattern(%w( _niku ), lambda {
       :niku
     })
@@ -3771,7 +3776,6 @@ EOT
   def rule_reports
     pattern(%w( !accountReport ))
     pattern(%w( !export ))
-    pattern(%w( !jsTaskReport ))
     pattern(%w( !resourceReport ))
     pattern(%w( !taskReport ))
     pattern(%w( !textReport ))
@@ -6241,51 +6245,6 @@ EOT
     })
   end
 
-  def rule_jsTaskReport
-    pattern(%w( !jsTaskReportHeader !reportBody ), lambda {
-      @property = @property.parent
-    })
-    doc('jstaskreport', <<'EOT'
-The report generates an interactive Gantt chart as a self-contained HTML file.
-Task data is serialized as JSON and embedded in the HTML output so that a
-JavaScript library can render the chart. Use [[hidetask]], [[rolluptask]], and
-[[sorttasks]] to filter and order the task list. All standard report attributes
-are supported.
-EOT
-       )
-  end
-
-  def rule_jsTaskReportHeader
-    pattern(%w( _jstaskreport !optionalID !reportName ), lambda {
-      newReport(@val[1], @val[2], :jstaskreport, @sourceFileInfo[0]) do
-        unless @property.modified?('columns')
-          %w( name start end ).each do |col|
-            @property.get('columns') <<
-            TableColumnDefinition.new(col, columnTitle(col))
-          end
-        end
-        # Show all tasks, sorted by tree, start-up, seqno-up.
-        unless @property.modified?('hideTask')
-          @property.set('hideTask',
-                        LogicalExpression.new(LogicalOperation.new(0)))
-        end
-        unless @property.modified?('sortTasks')
-          @property.set('sortTasks',
-                        [ [ 'tree', true, -1 ],
-                          [ 'start', true, 0 ],
-                          [ 'seqno', true, -1 ] ])
-        end
-        # Hide all resources by default.
-        unless @property.modified?('hideResource')
-          @property.set('hideResource',
-                        LogicalExpression.new(LogicalOperation.new(1)))
-        end
-        unless @property.modified?('sortResources')
-          @property.set('sortResources', [ [ 'id', true, -1 ] ])
-        end
-      end
-    })
-  end
 
   def rule_taskScenarioAttributes
 
