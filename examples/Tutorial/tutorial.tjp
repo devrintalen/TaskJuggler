@@ -494,3 +494,7 @@ resourcereport resourceGraph "" {
   sorttasks plan.start.up
 }
 
+jstaskreport "Gantt" {
+  scenarios plan
+}
+

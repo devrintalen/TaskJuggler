@@ -399,6 +399,13 @@ EOT
       copyDirectory('css')
       copyDirectory('icons')
       copyDirectory('scripts')
+      copyDirectoryIfPresent('js')
+    end
+
+    def copyDirectoryIfPresent(dirName)
+      auxSrcDir = AppConfig.dataDirs("data/#{dirName}")[0]
+      return if auxSrcDir.nil? || !File.exist?(auxSrcDir)
+      copyDirectory(dirName)
     end
 
     def copyDirectory(dirName)

@@ -20,8 +20,7 @@ class TaskJuggler
 
   # This specialization of ReportBase implements an interactive Gantt chart
   # report. Task data is serialized as JSON and embedded in a self-contained
-  # HTML file. A JavaScript stub is included so the output is testable in a
-  # browser before a charting library is attached.
+  # HTML file. D3.js is used to render the chart.
   class JSTaskReportRE < ReportBase
 
     def initialize(report)
@@ -68,13 +67,15 @@ class TaskJuggler
           end
 
           complete = task['complete', idx] rescue nil
+          effort   = task['effort', idx] rescue nil
 
           scenarios_data[sc_id] = {
             'start'     => start_str,
             'end'       => end_str,
             'duration'  => duration_days,
             'complete'  => complete,
-            'milestone' => milestone
+            'milestone' => milestone,
+            'effort'    => effort
           }
         end
 
@@ -89,13 +90,19 @@ class TaskJuggler
         end
         depends.uniq!
 
+        # WBS string — use sequenceNo-based path through the tree
+        wbs = task.get('bsi') rescue nil
+        wbs ||= task.fullId
+
         {
-          'id'        => task.fullId,
-          'name'      => task.name,
-          'parent'    => task.parent ? task.parent.fullId : nil,
-          'level'     => task.level,
-          'scenarios' => scenarios_data,
-          'depends'   => depends
+          'id'          => task.fullId,
+          'name'        => task.name,
+          'wbs'         => wbs,
+          'parent'      => task.parent ? task.parent.fullId : nil,
+          'level'       => task.level,
+          'isContainer' => !task.children.empty?,
+          'scenarios'   => scenarios_data,
+          'depends'     => depends
         }
       end
 
@@ -115,27 +122,46 @@ class TaskJuggler
 
       html = []
 
-      # Script block: embed the JSON data
+      # ── Inline D3.js ──────────────────────────────────────────────────────
+      d3_src = find_data_file('data/js/d3.min.js')
+      if d3_src
+        html << (d3_script = XMLElement.new('script', 'type' => 'text/javascript'))
+        d3_script << XMLBlob.new("\n" + IO.read(d3_src) + "\n")
+      end
+
+      # ── Script block: embed the JSON data ─────────────────────────────────
       html << (data_script = XMLElement.new('script', 'type' => 'text/javascript'))
       data_script << XMLBlob.new(
-        "\nwindow.tjGanttData = #{json_str};\n" \
-        "console.log('tjGanttData ready', window.tjGanttData);\n"
+        "\nwindow.tjGanttData = #{json_str};\n"
       )
 
-      # Container div
-      html << (container = XMLElement.new('div', 'id' => 'tj-gantt-container',
-                                          'style' => 'width:100%;min-height:600px;' \
-                                                     'font-family:sans-serif;padding:1em;'))
-      container << (p = XMLElement.new('p'))
-      p << XMLText.new(
-        "Gantt chart data loaded (#{tasks_json.length} tasks). " \
-        "Attach a JS library to render."
-      )
+      # ── Container div ─────────────────────────────────────────────────────
+      html << XMLElement.new('div', 'id' => 'tj-gantt-container',
+                             'style' => 'width:100%;font-family:sans-serif;')
+
+      # ── Inline chart rendering script ─────────────────────────────────────
+      chart_src = find_data_file('data/js/tjgantt.js')
+      if chart_src
+        html << (chart_script = XMLElement.new('script', 'type' => 'text/javascript'))
+        chart_script << XMLBlob.new("\n" + IO.read(chart_src) + "\n")
+      end
 
       html
     end
 
     private
+
+    # Locate a data file using AppConfig.dataDirs (same mechanism as CSS).
+    def find_data_file(relative_path)
+      dir_part  = File.dirname(relative_path)   # e.g. 'data/js'
+      base_name = File.basename(relative_path)  # e.g. 'd3.min.js'
+      dirs = AppConfig.dataDirs(dir_part)
+      dirs.each do |dir|
+        candidate = File.join(dir, base_name)
+        return candidate if File.exist?(candidate)
+      end
+      nil
+    end
 
     # Minimal JSON serializer — avoids a hard dependency on the json gem.
     def to_json(obj)
