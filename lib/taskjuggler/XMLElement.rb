@@ -232,11 +232,7 @@ class TaskJuggler
     end
 
     def to_s(indent)
-      out = +''
-      @blob.each_utf8_char do |c|
-        out += (c == "\n" ? "\n" + ' ' * indent : c)
-      end
-      out
+      @blob
     end
 
   end
