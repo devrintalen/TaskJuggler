@@ -6283,10 +6283,6 @@ EOT
         unless @property.modified?('sortResources')
           @property.set('sortResources', [ [ 'id', true, -1 ] ])
         end
-        # jstaskreport is HTML-only by default.
-        unless @property.modified?('formats')
-          @property.set('formats', [ :html ])
-        end
       end
     })
   end
