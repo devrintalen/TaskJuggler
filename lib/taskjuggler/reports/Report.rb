@@ -77,6 +77,10 @@ class TaskJuggler
       # We either generate the requested formats or the list of formats that
       # was specified in the report definition.
       (requestedFormats || get('formats')).each do |format|
+        # htmljs on an embedded subreport (empty filename) only affects content
+        # selection in generateIntermediateFormat; no standalone file is written.
+        next if format == :htmljs && @name.empty?
+
         if @name.empty?
           error('empty_report_file_name',
                 "Report #{@id} has output formats requested, but the " +
@@ -90,7 +94,7 @@ class TaskJuggler
           generateHTML
           copyAuxiliaryFiles
         when :htmljs
-          generateHTMLJS
+          generateHTML
           copyAuxiliaryFiles
         when :csv
           generateCSV
@@ -137,7 +141,11 @@ class TaskJuggler
       when :textreport
         @content = TextReport.new(self)
       when :taskreport
-        @content = TaskListRE.new(self)
+        if get('formats').include?(:htmljs)
+          @content = JSTaskReportRE.new(self)
+        else
+          @content = TaskListRE.new(self)
+        end
       when :tracereport
         @content = TraceReport.new(self)
       when :statusSheet
@@ -260,21 +268,6 @@ EOT
       rescue IOError, SystemCallError
         error('write_html', "Cannot write to file #{fileName}.\n#{$!}",
               sourceFileInfo)
-      end
-    end
-
-    # Generate an HTML version of the report with an interactive JavaScript
-    # Gantt chart. Only taskreport uses JSTaskReportRE; all other report types
-    # fall back to standard HTML output.
-    def generateHTMLJS
-      if @typeSpec == :taskreport
-        saved_content = @content
-        @content = JSTaskReportRE.new(self)
-        @content.generateIntermediateFormat
-        generateHTML
-        @content = saved_content
-      else
-        generateHTML
       end
     end
 
