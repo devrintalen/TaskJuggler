@@ -33,9 +33,8 @@
   };
 
   /* ── Layout ── */
-  var ROW_H         = 20;   // pixels per task row
-  var HDR_H         = 40;   // two-row header height (20px each)
-  var SCROLLBAR_W   = 20;   // reserved width for the left-panel scrollbar
+  var ROW_H  = 20;   // pixels per task row
+  var HDR_H  = 40;   // two-row header height (20px each)
 
   /* Left-panel column definitions.
    * 'bsi' maps to t.wbs.  'chart' is skipped (it IS the SVG panel).      */
@@ -68,9 +67,10 @@
   });
   if (!colIds.length) { colIds = ['bsi', 'name', 'start', 'end']; }
 
-  /* Left panel width = sum of column widths + scrollbar reservation */
+  /* Left panel content width = sum of column widths.
+   * The outer div is allowed to size to fit its content; the scrollbar sits
+   * inside that natural width so it never clips any column.                */
   var LEFT_CONTENT_W = colIds.reduce(function (s, id) { return s + ALL_COLS[id].width; }, 0);
-  var LEFT_W         = LEFT_CONTENT_W + SCROLLBAR_W;
 
   /* ── Per-task display info ── */
   tasks.forEach(function (t) {
@@ -98,14 +98,15 @@
 
   /* ── Left panel ── */
   var leftPanel = document.createElement('div');
+  /* overflow-y:scroll reserves a fixed-width scrollbar gutter; combined with
+   * width:max-content the div grows to fit the table exactly, then the
+   * scrollbar sits in the reserved gutter rather than overlapping columns.  */
   leftPanel.style.cssText =
-    'width:' + LEFT_W + 'px;min-width:' + LEFT_W + 'px;' +
-    'overflow-y:scroll;overflow-x:hidden;border-right:2px solid #7a7a7a;flex-shrink:0;';
+    'overflow-y:scroll;overflow-x:hidden;border-right:2px solid #7a7a7a;flex-shrink:0;' +
+    'width:max-content;';
   wrapper.appendChild(leftPanel);
 
   var table = document.createElement('table');
-  /* Use an explicit pixel width so table-layout:fixed doesn't shrink columns
-   * to fit inside the scrollbar-reduced content area.                      */
   table.style.cssText =
     'width:' + LEFT_CONTENT_W + 'px;border-collapse:collapse;table-layout:fixed;';
   leftPanel.appendChild(table);
@@ -148,16 +149,22 @@
         'border-bottom:1px solid #ccc;';
 
       if (id === 'name') {
-        /* Icon + indented name */
+        /* Icon + indented name — flex row so icon and text stay side-by-side */
+        var nameDiv = document.createElement('div');
+        nameDiv.style.cssText =
+          'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
         if (iconBase) {
           var img = document.createElement('img');
           img.src = iconBase + (t._isContainer ? 'taskgroup' : 'task') + '.png';
-          img.style.cssText = 'vertical-align:middle;margin-right:3px;';
-          td.appendChild(img);
+          img.style.cssText = 'flex-shrink:0;margin-right:3px;';
+          nameDiv.appendChild(img);
         }
-        var indent = document.createTextNode(
-          '\u00a0'.repeat(Math.max(0, (t.level - 1) * 2)) + (t.name || ''));
-        td.appendChild(indent);
+        var nameSpan = document.createElement('span');
+        nameSpan.style.cssText = 'overflow:hidden;white-space:nowrap;';
+        nameSpan.textContent =
+          '\u00a0'.repeat(Math.max(0, (t.level - 1) * 2)) + (t.name || '');
+        nameDiv.appendChild(nameSpan);
+        td.appendChild(nameDiv);
       } else {
         var text = '';
         if      (id === 'bsi')     { text = t.wbs || ''; }
