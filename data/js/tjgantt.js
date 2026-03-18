@@ -367,6 +367,10 @@
         x: 0, y: i * ROW_H, width: w, height: ROW_H,
         fill: (i % 2 === 0) ? C.rowEven : C.rowOdd
       });
+      svgEl('line', gStripes, {
+        x1: 0, y1: (i + 1) * ROW_H - 0.5, x2: w, y2: (i + 1) * ROW_H - 0.5,
+        stroke: C.headerBorder, 'stroke-width': 1
+      });
     });
   }
 
@@ -380,11 +384,6 @@
                               stroke: C.gridLine, 'stroke-width': 1 });
     });
   }
-
-    /* TODO horizontal lines between rows should match
-     * the 1px 0x9a9a9a borders between table cells on
-     * the left side.
-     */
 
     /* TODO there are vertical grey bars in the standard chart -
      * maybe these are for weekends? Investigate the ruby code
