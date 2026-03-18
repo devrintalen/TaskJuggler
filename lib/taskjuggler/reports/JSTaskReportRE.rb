@@ -165,6 +165,8 @@ class TaskJuggler
 
       html = []
 
+      html << rt_to_html('header')
+
       # ── Inline D3.js ──────────────────────────────────────────────────────
       d3_src = find_data_file('data/js/d3.min.js')
       if d3_src
@@ -188,6 +190,8 @@ class TaskJuggler
         html << (chart_script = XMLElement.new('script', 'type' => 'text/javascript'))
         chart_script << XMLBlob.new("\n" + IO.read(chart_src) + "\n")
       end
+
+      html << rt_to_html('footer')
 
       html
     end
