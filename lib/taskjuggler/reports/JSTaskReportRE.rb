@@ -191,6 +191,26 @@ class TaskJuggler
         chart_script << XMLBlob.new("\n" + IO.read(chart_src) + "\n")
       end
 
+      # ── Caption and legend ────────────────────────────────────────────────
+      # margin-top:-2px collapses the seam with the chart's bottom border.
+      # border matches the chart's 2px solid #9a9a9a outer frame.
+      footer_div = XMLElement.new('div',
+        'style' => 'width:100%;box-sizing:border-box;' \
+                   'margin-top:-2px;border:2px solid #9a9a9a;')
+      if a('caption')
+        cap_div = XMLElement.new('div', 'class' => 'tj_table_caption',
+          'style' => 'border-bottom:3px solid #9a9a9a;')
+        a('caption').sectionNumbers = false
+        cap_div << a('caption').to_html
+        footer_div << cap_div
+      end
+
+      legend = ReportTableLegend.new
+      legend.showGanttItems = true
+      legend.addGanttItem('Off-duty period', 'offduty')
+      footer_div << legend.to_html
+      html << footer_div
+
       html << rt_to_html('footer')
 
       html
