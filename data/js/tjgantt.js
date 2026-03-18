@@ -221,10 +221,10 @@
   var gBody    = makeG('tj-body');
   gBody.setAttribute('transform', 'translate(0,' + HDR_H + ')');
   var gStripes = makeG('tj-stripes', gBody);
-  var gGrid    = makeG('tj-grid',    gBody);
-  var gNow     = makeG('tj-now',     gBody);
   var gBars    = makeG('tj-bars',    gBody);
   var gArrows  = makeG('tj-arrows',  gBody);
+  var gNow     = makeG('tj-now',     gBody);
+  var gGrid    = makeG('tj-grid',    gBody);
 
   /* ── D3 scale and zoom ── */
   function getChartWidth() {
@@ -391,9 +391,6 @@
      */
 
   /* ── Now line ── */
-    /* TODO This should be 1px and be on top of the tasks, milestones, and arrows,
-     * but (confusingly) behind row grid lines?
-     */
   function renderNowLine(xScale) {
     clearG(gNow);
     var x = xScale(nowDate);
