@@ -93,7 +93,7 @@
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
     'display:flex;width:100%;height:600px;overflow:hidden;' +
-    'font-family:sans-serif;font-size:11px;border:1px solid #9a9a9a;';
+    'font-family:sans-serif;font-size:11px;border:2px solid #9a9a9a;';
   container.appendChild(wrapper);
 
   /* ── Left panel ── */
@@ -115,18 +115,17 @@
   var thead = document.createElement('thead');
   table.appendChild(thead);
   var hrow = document.createElement('tr');
-  hrow.style.cssText =
-    'position:sticky;top:0;z-index:10;' +
-    'background:' + C.headerBg + ';color:' + C.headerFg + ';';
   thead.appendChild(hrow);
   colIds.forEach(function (id) {
     var def = ALL_COLS[id];
     var th  = document.createElement('th');
     th.textContent = def.title;
     th.style.cssText =
+      'position:sticky;top:0;z-index:10;' +
       'padding:2px 4px;text-align:' + def.align + ';width:' + def.width + 'px;' +
-      'height:' + HDR_H + 'px;border-bottom:1px solid #555;' +
-      'white-space:nowrap;overflow:hidden;';
+      'height:' + HDR_H + 'px;border:1px solid #9a9a9a;' +
+      'white-space:nowrap;overflow:hidden;box-sizing:border-box;' +
+      'background:' + C.headerBg + ';color:' + C.headerFg + ';';
     hrow.appendChild(th);
   });
 
@@ -146,7 +145,7 @@
       td.style.cssText =
         'padding:1px 4px;overflow:hidden;white-space:nowrap;' +
         'text-align:' + def.align + ';width:' + def.width + 'px;' +
-        'border-bottom:1px solid #ccc;';
+        'border:1px solid #9a9a9a;';
 
       if (id === 'name') {
         /* Icon + indented name — flex row so icon and text stay side-by-side */
