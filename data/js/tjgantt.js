@@ -120,7 +120,7 @@
     th.style.cssText =
       'position:sticky;top:0;z-index:10;' +
       'padding:2px 4px;text-align:' + col.align + ';' +
-      'height:' + HDR_H + 'px;border:1px solid #9a9a9a;' +
+	  'height:' + HDR_H + 'px;border-right:1px solid #9a9a9a;border-bottom:1px solid #9a9a9a;' +
       'box-sizing:border-box;background:' + C.headerBg + ';color:' + C.headerFg + ';';
     hrow.appendChild(th);
   });
