@@ -199,7 +199,7 @@ class TaskJuggler
                    'margin-top:-2px;border:2px solid #9a9a9a;')
       if a('caption')
         cap_div = XMLElement.new('div', 'class' => 'tj_table_caption',
-          'style' => 'border-bottom:3px solid #9a9a9a;')
+          'style' => 'margin:0;border-bottom:3px solid #9a9a9a;')
         a('caption').sectionNumbers = false
         cap_div << a('caption').to_html
         footer_div << cap_div
@@ -208,7 +208,9 @@ class TaskJuggler
       legend = ReportTableLegend.new
       legend.showGanttItems = true
       legend.addGanttItem('Off-duty period', 'offduty')
-      footer_div << legend.to_html
+      legend_el = legend.to_html
+      legend_el['style'] = 'margin:0;' if legend_el
+      footer_div << legend_el
       html << footer_div
 
       html << rt_to_html('footer')
