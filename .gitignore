@@ -25,3 +25,6 @@ test/TestSuite/Syntax/Correct/scripts
 test/TestSuite/Syntax/Correct/*.html
 test/TestSuite/Syntax/Correct/*.csv
 test/TestSuite/Syntax/Correct/*.xml
+/.claude/
+/CLAUDE.md
+*~
