@@ -36,13 +36,11 @@
   /* ── Layout ── */
   var ROW_H    = 20;   // pixels per task row
   var HDR_H    = 40;   // two-row header height (20px each)
-  var DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var wdayFmt = null;  // initialised after projectTz is known (below)
 
   function fmtDate(s) {
     if (!s) { return ''; }
-    var p = s.split('-');
-    var d = new Date(+p[0], +p[1] - 1, +p[2]);
-    return DAY_ABBR[d.getDay()] + ' ' + s;
+    return wdayFmt.format(projectMidnight(s)) + ' ' + s;
   }
 
 
@@ -59,6 +57,20 @@
   var sc0      = (project.scenarios || [])[0] || 'plan';
   var iconBase = project.iconBase || null;   // e.g. "icons/" or null
 
+  /* ── Project timezone ── */
+  var projectTz  = project.tz       || 'UTC';
+  var tzOffsetMs = (project.tzOffset || 0) * 1000;
+
+  /* Convert a 'YYYY-MM-DD' date string to the UTC timestamp that represents
+   * midnight in the project timezone.  new Date('YYYY-MM-DD') gives UTC
+   * midnight; subtracting the project's UTC offset shifts it to project-local
+   * midnight so that d3.scaleUtc() places it correctly. */
+  function projectMidnight(dateStr) {
+    return new Date(new Date(dateStr).getTime() - tzOffsetMs);
+  }
+
+  wdayFmt = new Intl.DateTimeFormat('en-US', { timeZone: projectTz, weekday: 'short' });
+
   /* Columns to show — array of {id, title, align} objects from the backend */
   var cols = (project.columns || []);
   if (!cols.length) {
@@ -73,17 +85,17 @@
   /* ── Per-task display info ── */
   tasks.forEach(function (t) {
     var sc = t.scenarios[sc0] || {};
-    t._start       = sc.start ? new Date(sc.start) : null;
-    t._end         = sc.end   ? new Date(sc.end)   : null;
+    t._start       = sc.start ? projectMidnight(sc.start) : null;
+    t._end         = sc.end   ? projectMidnight(sc.end)   : null;
     t._complete    = (sc.complete != null) ? sc.complete : 0;
     t._milestone   = !!sc.milestone;
     t._isContainer = !!t.isContainer;
   });
 
 
-  var projectStart = project.start ? new Date(project.start) : (tasks[0] && tasks[0]._start) || new Date();
-  var projectEnd   = project.end   ? new Date(project.end)   : new Date(projectStart.getTime() + 86400000 * 30);
-  var nowDate      = project.now   ? new Date(project.now)   : new Date();
+  var projectStart = project.start ? projectMidnight(project.start) : (tasks[0] && tasks[0]._start) || new Date();
+  var projectEnd   = project.end   ? projectMidnight(project.end)   : new Date(projectStart.getTime() + 86400000 * 30);
+  var nowDate      = project.now   ? projectMidnight(project.now)   : new Date();
 
   var chartH = tasks.length * ROW_H;
   var svgH   = chartH + HDR_H;
@@ -232,7 +244,7 @@
     return Math.max(200, rightPanel.getBoundingClientRect().width || 800);
   }
 
-  var baseXScale = d3.scaleTime()
+  var baseXScale = d3.scaleUtc()
     .domain([projectStart, projectEnd])
     .range([0, getChartWidth()]);
 
@@ -279,29 +291,70 @@
     while (g.firstChild) { g.removeChild(g.firstChild); }
   }
 
-  /* Adaptive tick configuration based on pixels-per-day.
-   * Small-tick label at week scale uses the day-of-month of the Monday
-   * (matching the static taskreport header).                              */
+  /* ── Project-timezone-aware tick helpers ── */
+
+  /* Build an Intl formatter that outputs dates in the project timezone. */
+  function tzFmt(options) {
+    var f = new Intl.DateTimeFormat('en-US',
+      Object.assign({ timeZone: projectTz }, options));
+    return function(d) { return f.format(d); };
+  }
+
+  /* Like tzFmt but assembles selected parts in a specific order. */
+  function tzFmtParts(options, order) {
+    var f = new Intl.DateTimeFormat('en-US',
+      Object.assign({ timeZone: projectTz }, options));
+    return function(d) {
+      var parts = {};
+      f.formatToParts(d).forEach(function(p) { parts[p.type] = p.value; });
+      return order.map(function(k) { return parts[k] || ''; }).join(' ');
+    };
+  }
+
+  /* Generate ticks at project-timezone midnight / boundary positions.
+   * Strategy: shift the current domain by +tzOffsetMs so that UTC
+   * midnight in the shifted space equals project-local midnight in real
+   * time; generate UTC ticks there; shift each tick back by -tzOffsetMs.
+   * This aligns ticks with the project timezone rather than UTC or the
+   * browser's local timezone. */
+  function projectTicks(xScale, interval) {
+    var dom = xScale.domain();
+    var rng = xScale.range();
+    var shifted = d3.scaleUtc()
+      .domain([new Date(dom[0].getTime() + tzOffsetMs),
+               new Date(dom[1].getTime() + tzOffsetMs)])
+      .range(rng);
+    return shifted.ticks(interval).map(function(t) {
+      return new Date(t.getTime() - tzOffsetMs);
+    });
+  }
+
+  /* Adaptive tick configuration based on pixels-per-day. */
   function tickConfig(xScale) {
     var domainMs = xScale.domain()[1] - xScale.domain()[0];
     var rangeW   = xScale.range()[1]  - xScale.range()[0];
     var ppd      = rangeW / (domainMs / 86400000);
 
     if (ppd < 0.2) {
-      return { large: d3.timeYear.every(10),  largeFmt: d3.timeFormat('%Y'),
-               small: d3.timeYear.every(1),   smallFmt: d3.timeFormat('%Y') };
+      return { large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
+               small: d3.utcYear.every(1),   smallFmt: tzFmt({ year: 'numeric' }) };
     } else if (ppd < 2) {
-      return { large: d3.timeYear.every(1),   largeFmt: d3.timeFormat('%Y'),
-               small: d3.timeMonth.every(3),  smallFmt: d3.timeFormat('%b') };
+      return { large: d3.utcYear.every(1),   largeFmt: tzFmt({ year: 'numeric' }),
+               small: d3.utcMonth.every(3),  smallFmt: tzFmt({ month: 'short' }) };
     } else if (ppd < 15) {
-      return { large: d3.timeMonth.every(1),  largeFmt: d3.timeFormat('%b %Y'),
-               small: d3.timeMonday.every(1), smallFmt: d3.timeFormat('%d') };
+      return { large: d3.utcMonth.every(1),
+               largeFmt: tzFmtParts({ month: 'short', year: 'numeric' }, ['month', 'year']),
+               small: d3.utcMonday.every(1), smallFmt: tzFmt({ day: 'numeric' }) };
     } else if (ppd < 60) {
-      return { large: d3.timeMonday.every(1), largeFmt: d3.timeFormat('%b %d'),
-               small: d3.timeDay.every(1),    smallFmt: d3.timeFormat('%d') };
+      return { large: d3.utcMonday.every(1),
+               largeFmt: tzFmtParts({ month: 'short', day: 'numeric' }, ['month', 'day']),
+               small: d3.utcDay.every(1),    smallFmt: tzFmt({ day: 'numeric' }) };
     } else {
-      return { large: d3.timeDay.every(1),    largeFmt: d3.timeFormat('%a %d %b'),
-               small: d3.timeHour.every(6),   smallFmt: d3.timeFormat('%H:%M') };
+      return { large: d3.utcDay.every(1),
+               largeFmt: tzFmtParts({ weekday: 'short', day: 'numeric', month: 'short' },
+                                    ['weekday', 'day', 'month']),
+               small: d3.utcHour.every(6),
+               smallFmt: tzFmt({ hour: '2-digit', minute: '2-digit', hour12: false }) };
     }
   }
 
@@ -323,7 +376,7 @@
                                 stroke: C.headerBorder, 'stroke-width': 1 });
 
     /* Large ticks — top row */
-    var lgTicks = xScale.ticks(cfg.large);
+    var lgTicks = projectTicks(xScale, cfg.large);
     lgTicks.forEach(function (d, i) {
       var x0 = xScale(d);
       var x1 = (i + 1 < lgTicks.length) ? xScale(lgTicks[i + 1]) : w;
@@ -341,7 +394,7 @@
     });
 
     /* Small ticks — bottom row */
-    var smTicks = xScale.ticks(cfg.small);
+    var smTicks = projectTicks(xScale, cfg.small);
     smTicks.forEach(function (d, i) {
       var x0 = xScale(d);
       var x1 = (i + 1 < smTicks.length) ? xScale(smTicks[i + 1]) : w;
@@ -396,7 +449,7 @@
   function renderGrid(xScale) {
     clearG(gGrid);
     var cfg = tickConfig(xScale);
-    xScale.ticks(cfg.small).forEach(function (d) {
+    projectTicks(xScale, cfg.small).forEach(function (d) {
       var x = xScale(d);
       svgEl('line', gGrid, { x1: x, y1: 0, x2: x, y2: chartH,
                               stroke: C.gridLine, 'stroke-width': 1 });

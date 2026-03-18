@@ -151,7 +151,9 @@ class TaskJuggler
         'now'       => now_date.strftime('%Y-%m-%d'),
         'scenarios' => scenarioNames,
         'columns'   => requested_cols,
-        'iconBase'  => icon_base
+        'iconBase'  => icon_base,
+        'tz'        => TjTime.timeZone,
+        'tzOffset'  => (@project['start'] ? @project['start'].localtime.utc_offset : 0)
       }
 
       gantt_data = {
