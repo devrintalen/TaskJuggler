@@ -491,11 +491,22 @@
         var x2 = ex - MIN_END_GAP;
         var pathStr;
         if (x1 < x2) {
-          var xMid = x1 + (x2 - x1) / 2;
-          pathStr = 'M'+sx+','+sy+' H'+xMid+' V'+ey+' H'+ex;
+          /* Strategy 1: direct 3-segment path (matches GanttRouter strategy 1) */
+          var xSeg = x1 + (x2 - x1) / 2;
+          pathStr = 'M'+sx+','+sy+' H'+xSeg+' V'+ey+' H'+ex;
         } else {
-          var xOut = Math.max(sx + MIN_START_GAP, ex + MIN_END_GAP + 2);
-          pathStr = 'M'+sx+','+sy+' H'+xOut+' V'+ey+' H'+ex;
+          /* Strategy 2: complex U-shape (matches GanttRouter strategy 2)
+           * sx,sy → x1,sy → x1,ySeg → x2,ySeg → x2,ey → ex,ey  */
+          var deltaY = sy < ey ? 1 : -1;
+          var ySeg   = sy + 8 * deltaY;
+          var pts    = [[sx, sy], [x1, sy]];
+          if (x1 !== x2) {
+            pts.push([x1, ySeg], [x2, ySeg]);
+          }
+          pts.push([x2, ey], [ex, ey]);
+          pathStr = pts.map(function (p, i) {
+            return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+          }).join(' ');
         }
 
         svgEl('path', gArrows, {
