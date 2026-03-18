@@ -29,6 +29,7 @@
     rowOdd       : '#d9dfeb',
     headerBg     : '#7a7a7a',
     headerFg     : '#ffffff',
+    headerBorder : '#9a9a9a',
     gridLine     : 'rgba(0,0,0,0.15)'
   };
 
@@ -314,15 +315,11 @@
     var rowH = HDR_H / 2;
 
     /* Background (in gHeaderBg = first child of gHeader) */
-      /* TODO "borders" between header elements should match the
-       * the 1px 0x9a9a9a borders between the table elements on
-       * the left side.
-       */
     svgEl('rect', gHeaderBg, { x: 0, y: 0, width: w, height: HDR_H, fill: C.headerBg });
     svgEl('line', gHeaderBg, { x1: 0, y1: rowH - 0.5, x2: w, y2: rowH - 0.5,
-                                stroke: '#555', 'stroke-width': 1 });
+                                stroke: C.headerBorder, 'stroke-width': 1 });
     svgEl('line', gHeaderBg, { x1: 0, y1: HDR_H - 0.5, x2: w, y2: HDR_H - 0.5,
-                                stroke: '#444', 'stroke-width': 1 });
+                                stroke: C.headerBorder, 'stroke-width': 1 });
 
     /* Large ticks — top row */
     var lgTicks = xScale.ticks(cfg.large);
@@ -331,7 +328,7 @@
       var x1 = (i + 1 < lgTicks.length) ? xScale(lgTicks[i + 1]) : w;
       if (x1 < 0 || x0 > w) { return; }
       svgEl('line', gHeaderLg, { x1: x0, y1: 0, x2: x0, y2: rowH,
-                                  stroke: '#555', 'stroke-width': 1 });
+                                  stroke: C.headerBorder, 'stroke-width': 1 });
       var lx = Math.max(x0 + 3, 2);
       if (x1 - lx > 5) {
         var txt = svgEl('text', gHeaderLg, {
@@ -349,7 +346,7 @@
       var x1 = (i + 1 < smTicks.length) ? xScale(smTicks[i + 1]) : w;
       if (x1 < 0 || x0 > w) { return; }
       svgEl('line', gHeaderSm, { x1: x0, y1: rowH, x2: x0, y2: HDR_H,
-                                  stroke: '#555', 'stroke-width': 1 });
+                                  stroke: C.headerBorder, 'stroke-width': 1 });
       var lx = x0 + 3;
       if (x1 - lx > 4) {
         var txt2 = svgEl('text', gHeaderSm, {
