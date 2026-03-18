@@ -33,8 +33,16 @@
   };
 
   /* ── Layout ── */
-  var ROW_H  = 20;   // pixels per task row
-  var HDR_H  = 40;   // two-row header height (20px each)
+  var ROW_H    = 20;   // pixels per task row
+  var HDR_H    = 40;   // two-row header height (20px each)
+  var DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  function fmtDate(s) {
+    if (!s) { return ''; }
+    var p = s.split('-');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return DAY_ABBR[d.getDay()] + ' ' + s;
+  }
 
   /* Left-panel column definitions.
    * 'bsi' maps to t.wbs.  'chart' is skipped (it IS the SVG panel).      */
@@ -167,8 +175,8 @@
       } else {
         var text = '';
         if      (id === 'bsi')     { text = t.wbs || ''; }
-        else if (id === 'start')   { text = sc.start   || ''; }
-        else if (id === 'end')     { text = sc.end     || ''; }
+        else if (id === 'start')   { text = fmtDate(sc.start); }
+        else if (id === 'end')     { text = fmtDate(sc.end);   }
         else if (id === 'effort')  { text = sc.effort  || ''; }
         else if (id === 'cost')    { text = sc.cost    || ''; }
         else if (id === 'revenue') { text = sc.revenue || ''; }
