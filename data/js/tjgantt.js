@@ -381,8 +381,8 @@
     tasks.forEach(function (t, i) {
       var zones = (t.scenarios[sc0] || {}).timeoff || [];
       zones.forEach(function (zone) {
-        var x0 = xScale(new Date(zone[0]));
-        var x1 = xScale(new Date(zone[1]));
+        var x0 = xScale(new Date(zone[0] * 1000));
+        var x1 = xScale(new Date(zone[1] * 1000));
         if (x1 <= 0 || x0 >= getChartWidth()) { return; }
         svgEl('rect', gTimeOff, {
           x: x0, y: i * ROW_H, width: x1 - x0, height: ROW_H,

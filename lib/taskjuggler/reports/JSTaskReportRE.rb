@@ -97,7 +97,7 @@ class TaskJuggler
 
           timeoff_zones = task.collectTimeOffIntervals(idx, proj_iv, min_time_off)
           timeoff_json  = timeoff_zones.map do |zone|
-            [ zone.start.strftime('%Y-%m-%d'), zone.end.strftime('%Y-%m-%d') ]
+            [ zone.start.to_i, zone.end.to_i ]
           end
 
           scenarios_data[sc_id] = {
