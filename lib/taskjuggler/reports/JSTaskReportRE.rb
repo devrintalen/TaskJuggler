@@ -45,6 +45,17 @@ class TaskJuggler
 
       @taskList = taskList
       @scenarios = @report.get('scenarios')
+
+      # Build a full resource list for potential nested resource rows.
+      # filterResourceList is called per-task in build_nested_resource_rows.
+      resourceList = PropertyList.new(@project.resources)
+      begin
+        resourceList.setSorting(@report.get('sortResources'))
+      rescue
+        # sortResources may not be defined for all report contexts; ignore.
+      end
+      resourceList.query = @report.project.reportContexts.last.query
+      @resourceList = resourceList
     end
 
     # Return the report as an Array of XMLElement objects.
@@ -54,9 +65,11 @@ class TaskJuggler
 
       scenarioNames = @scenarios.map { |idx| @project.scenario(idx).id }
 
-      # Columns requested in the report definition (excluding 'chart' which is
-      # the SVG panel itself).
-      col_defs = (@report.get('columns') || []).reject { |c| c.id == 'chart' }
+      # Columns requested in the report definition (excluding 'chart' and
+      # 'weekly' which are the SVG panel itself).
+      col_defs = (@report.get('columns') || []).reject { |c|
+        c.id == 'chart' || c.id == 'weekly'
+      }
       # Fall back to a sensible default when none are specified.
       if col_defs.empty?
         %w( bsi name start end ).each do |id|
@@ -73,71 +86,8 @@ class TaskJuggler
         { 'id' => col.id, 'title' => col.title, 'align' => align_str }
       end
 
-      # Build the tasks JSON array.
-      # Minimum off-duty zone duration: 1 day, matching the static chart at
-      # week scale.  Captures weekends and full-day holidays.
-      min_time_off = 86400
-      proj_iv = TimeInterval.new(@project['start'], @project['end'])
-
-      tasks_json = @taskList.map do |task|
-        scenarios_data = {}
-        @scenarios.each do |idx|
-          sc_id = @project.scenario(idx).id
-          t_start = task['start', idx]
-          t_end   = task['end',   idx]
-          milestone = task['milestone', idx]
-
-          start_str = t_start ? t_start.strftime('%Y-%m-%d') : nil
-          end_str   = t_end   ? t_end.strftime('%Y-%m-%d')   : nil
-
-          duration_days = nil
-          if t_start && t_end
-            duration_days = ((t_end - t_start) / 86400.0).round
-          end
-
-          timeoff_zones = task.collectTimeOffIntervals(idx, proj_iv, min_time_off)
-          timeoff_json  = timeoff_zones.map do |zone|
-            [ zone.start.to_i, zone.end.to_i ]
-          end
-
-          scenarios_data[sc_id] = {
-            'start'     => start_str,
-            'end'       => end_str,
-            'duration'  => duration_days,
-            'complete'  => query_task_num(task, 'complete', idx),
-            'milestone' => milestone,
-            'effort'    => query_task_str(task, 'effort',  idx),
-            'cost'      => query_task_str(task, 'cost',    idx),
-            'revenue'   => query_task_str(task, 'revenue', idx),
-            'timeoff'   => timeoff_json
-          }
-        end
-
-        depends = []
-        @scenarios.each do |idx|
-          deps = task['depends', idx] rescue []
-          deps.each do |dep|
-            dep_id = dep.task.fullId rescue nil
-            next unless dep_id
-            depends << { 'id' => dep_id, 'scenario' => @project.scenario(idx).id }
-          end
-        end
-        depends.uniq!
-
-        wbs = task.get('bsi') rescue nil
-        wbs ||= task.fullId
-
-        {
-          'id'          => task.fullId,
-          'name'        => task.name,
-          'wbs'         => wbs,
-          'parent'      => task.parent ? task.parent.fullId : nil,
-          'level'       => task.level,
-          'isContainer' => !task.children.empty?,
-          'scenarios'   => scenarios_data,
-          'depends'     => depends
-        }
-      end
+      # Build the rows JSON array.
+      rows_json = build_rows_json
 
       now_date = @project['now'] || TjTime.new
 
@@ -145,20 +95,25 @@ class TaskJuggler
       # ReportTableCell which skips icons when selfcontained).
       icon_base = a('selfcontained') ? nil : (a('auxdir').to_s + 'icons/')
 
+      # Emit initialScale:'week' when a 'weekly' column is present so the
+      # JS renderer starts zoomed to approximately one week of width.
+      has_weekly = (@report.get('columns') || []).any? { |c| c.id == 'weekly' }
+
       project_data = {
-        'start'     => @project['start'] ? @project['start'].strftime('%Y-%m-%d') : nil,
-        'end'       => @project['end']   ? @project['end'].strftime('%Y-%m-%d')   : nil,
-        'now'       => now_date.strftime('%Y-%m-%d'),
-        'scenarios' => scenarioNames,
-        'columns'   => requested_cols,
-        'iconBase'  => icon_base,
-        'tz'        => TjTime.timeZone,
-        'tzOffset'  => (@project['start'] ? Time.at(@project['start'].to_i).localtime.utc_offset : 0)
+        'start'        => @project['start'] ? @project['start'].strftime('%Y-%m-%d') : nil,
+        'end'          => @project['end']   ? @project['end'].strftime('%Y-%m-%d')   : nil,
+        'now'          => now_date.strftime('%Y-%m-%d'),
+        'scenarios'    => scenarioNames,
+        'columns'      => requested_cols,
+        'iconBase'     => icon_base,
+        'tz'           => TjTime.timeZone,
+        'tzOffset'     => (@project['start'] ? Time.at(@project['start'].to_i).localtime.utc_offset : 0),
+        'initialScale' => has_weekly ? 'week' : nil
       }
 
       gantt_data = {
         'project' => project_data,
-        'tasks'   => tasks_json
+        'rows'    => rows_json
       }
 
       json_str = to_json(gantt_data)
@@ -219,6 +174,178 @@ class TaskJuggler
     end
 
     private
+
+    # Build the full rows JSON array for this report.
+    def build_rows_json
+      rows = []
+      proj_iv = TimeInterval.new(@project['start'], @project['end'])
+      min_time_off = 86400
+
+      @taskList.each do |task|
+        # ── Scenario-specific data ──────────────────────────────────────
+        scenarios_data = {}
+        @scenarios.each do |idx|
+          sc_id = @project.scenario(idx).id
+          t_start = task['start', idx]
+          t_end   = task['end',   idx]
+          milestone = task['milestone', idx]
+
+          start_str = t_start ? t_start.strftime('%Y-%m-%d') : nil
+          end_str   = t_end   ? t_end.strftime('%Y-%m-%d')   : nil
+
+          duration_days = nil
+          if t_start && t_end
+            duration_days = ((t_end - t_start) / 86400.0).round
+          end
+
+          timeoff_zones = task.collectTimeOffIntervals(idx, proj_iv, min_time_off)
+          timeoff_json  = timeoff_zones.map do |zone|
+            [ zone.start.to_i, zone.end.to_i ]
+          end
+
+          scenarios_data[sc_id] = {
+            'start'     => start_str,
+            'end'       => end_str,
+            'duration'  => duration_days,
+            'complete'  => query_task_num(task, 'complete', idx),
+            'milestone' => milestone,
+            'effort'    => query_task_str(task, 'effort',  idx),
+            'cost'      => query_task_str(task, 'cost',    idx),
+            'revenue'   => query_task_str(task, 'revenue', idx),
+            'timeoff'   => timeoff_json
+          }
+        end
+
+        # ── Dependencies ────────────────────────────────────────────────
+        depends = []
+        @scenarios.each do |idx|
+          deps = task['depends', idx] rescue []
+          deps.each do |dep|
+            dep_id = dep.task.fullId rescue nil
+            next unless dep_id
+            depends << { 'id' => dep_id, 'scenario' => @project.scenario(idx).id }
+          end
+        end
+        depends.uniq!
+
+        wbs = task.get('bsi') rescue nil
+        wbs ||= task.fullId
+
+        rows << {
+          'rowType'     => 'task',
+          'rowSpan'     => @scenarios.length,
+          'id'          => task.fullId,
+          'name'        => task.name,
+          'wbs'         => wbs,
+          'parent'      => task.parent ? task.parent.fullId : nil,
+          'level'       => task.level,
+          'isContainer' => !task.children.empty?,
+          'scenarios'   => scenarios_data,
+          'depends'     => depends
+        }
+
+        # Append nested resource rows (e.g. Development report style).
+        rows.concat(build_nested_resource_rows(task))
+      end
+
+      rows
+    end
+
+    # Build nested-resource sub-rows for a task.  Returns [] if hideResource
+    # filters everything out (e.g. when hideresource @all is set).
+    def build_nested_resource_rows(task)
+      return [] unless @resourceList
+
+      filtered = filterResourceList(
+        @resourceList.dup, task,
+        @report.get('hideResource'),
+        @report.get('rollupResource'),
+        @report.get('openNodes')
+      )
+      return [] if filtered.empty?
+
+      rows = []
+      filtered.each do |resource|
+        load_data = {}
+        @scenarios.each do |idx|
+          sc_id = @project.scenario(idx).id
+          buckets = collect_load_buckets(resource, task, idx, ['assigned', 'busy', 'free'])
+          load_data[sc_id] = {
+            'categories' => ['assigned', 'busy', 'free'],
+            'buckets'    => buckets
+          }
+        end
+
+        rows << {
+          'rowType'  => 'nested-resource',
+          'id'       => resource.fullId,
+          'name'     => resource.name,
+          'parent'   => resource.parent ? resource.parent.fullId : nil,
+          'scopeId'  => task.fullId,
+          'level'    => resource.level,
+          'isLeaf'   => resource.children.empty?,
+          'loadData' => load_data
+        }
+      end
+      rows
+    end
+
+    # Collect daily load buckets for a property (resource or task) optionally
+    # scoped to another property.  Returns an array of
+    #   [unix_day_start, v0, v1, ...]
+    # where the values correspond to the requested categories.
+    #
+    # categories:
+    #   ['assigned', 'busy', 'free']  — nested-resource under task
+    #     (property=resource, scope_property=task)
+    #   ['busy', 'free']              — resource primary (scope_property=nil)
+    #     (property=resource, scope_property=nil)
+    #   ['busy', 'free']              — nested-task under resource
+    #     (property=task, scope_property=resource)
+    def collect_load_buckets(property, scope_property, sc_idx, categories)
+      buckets = []
+      return buckets if @project['start'].nil? || @project['end'].nil?
+
+      day      = @project['start']
+      proj_end = @project['end']
+
+      while day < proj_end
+        next_day = TjTime.new(day.to_i + 86400)
+        next_day = proj_end if next_day > proj_end
+
+        si = @project.dateToIdx(day)
+        ei = @project.dateToIdx(next_day)
+
+        values =
+          case categories.first
+          when 'assigned'
+            # nested-resource under task: property=resource, scope_property=task
+            task_work  = property.getEffectiveWork(sc_idx, si, ei, scope_property)
+            total_work = property.getEffectiveWork(sc_idx, si, ei)
+            free_work  = property.getEffectiveFreeWork(sc_idx, si, ei)
+            [task_work, total_work - task_work, free_work]
+          when 'busy'
+            if scope_property
+              # nested-task under resource: property=task, scope_property=resource
+              capacity  = scope_property.getEffectiveWork(sc_idx, si, ei) +
+                          scope_property.getEffectiveFreeWork(sc_idx, si, ei)
+              task_work = property.getEffectiveWork(sc_idx, si, ei, scope_property)
+              [task_work, capacity - task_work]
+            else
+              # resource primary row
+              [property.getEffectiveWork(sc_idx, si, ei),
+               property.getEffectiveFreeWork(sc_idx, si, ei)]
+            end
+          else
+            []
+          end
+
+        buckets << ([day.to_i] + values)
+        day = next_day
+      end
+
+      buckets
+    end
 
     # Query a task attribute and return the numeric result (or nil).
     def query_task_num(task, attr, idx)

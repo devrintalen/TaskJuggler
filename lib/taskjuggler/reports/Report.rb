@@ -19,6 +19,7 @@ require 'taskjuggler/reports/AccountListRE'
 require 'taskjuggler/reports/TextReport'
 require 'taskjuggler/reports/TaskListRE'
 require 'taskjuggler/reports/JSTaskReportRE'
+require 'taskjuggler/reports/JSResourceReportRE'
 require 'taskjuggler/reports/ResourceListRE'
 require 'taskjuggler/reports/TraceReport'
 require 'taskjuggler/reports/TagFile'
@@ -131,7 +132,11 @@ class TaskJuggler
       when :niku
         @content = NikuReport.new(self)
       when :resourcereport
-        @content = ResourceListRE.new(self)
+        use_js = get('formats').include?(:htmljs) ||
+                 @project.reportContexts.any? { |ctx|
+                   ctx.report.get('formats').include?(:htmljs)
+                 }
+        @content = use_js ? JSResourceReportRE.new(self) : ResourceListRE.new(self)
       when :tagfile
         @content = TagFile.new(self)
       when :textreport

@@ -4,6 +4,11 @@
  *
  * Visual vocabulary matches the static taskreport output (GanttChart.rb etc.)
  * Saleae Logic-style scroll-wheel zoom: the date under the cursor stays fixed.
+ *
+ * Supports row types: task, nested-resource, nested-task, resource.
+ * Multi-scenario task rows use rowSpan > 1 (one bar per scenario stacked).
+ * Load-stack rows (resource/nested-resource/nested-task) render proportional
+ * busy/free/assigned bars.
  */
 (function () {
   'use strict';
@@ -30,11 +35,22 @@
     headerBg     : '#7a7a7a',
     headerFg     : '#ffffff',
     headerBorder : '#9a9a9a',
-    gridLine     : 'rgba(0,0,0,0.15)'
+    gridLine     : 'rgba(0,0,0,0.15)',
+    /* Load stack colours */
+    loadBusy     : '#2f57ea',   /* matches taskbar */
+    loadAssigned : '#1a3a9e',   /* darker blue */
+    loadFree     : '#ebf2ff'    /* near-transparent (matches rowEven) */
+  };
+
+  /* Category name → fill colour */
+  var loadCatColor = {
+    busy    : C.loadBusy,
+    assigned: C.loadAssigned,
+    free    : C.loadFree
   };
 
   /* ── Layout ── */
-  var ROW_H    = 20;   // pixels per task row
+  var ROW_H    = 20;   // pixels per visual row
   var HDR_H    = 40;   // two-row header height (20px each)
   var wdayFmt = null;  // initialised after projectTz is known (below)
 
@@ -46,13 +62,13 @@
 
   /* ───────────────────────── Bootstrap ───────────────────────────────── */
   var data = window.tjGanttData;
-  if (!data || !data.tasks || !data.tasks.length) { return; }
+  if (!data || !data.rows || !data.rows.length) { return; }
 
   var container = document.getElementById('tj-gantt-container');
   if (!container) { return; }
   container.innerHTML = '';
 
-  var tasks    = data.tasks;
+  var rows     = data.rows;
   var project  = data.project;
   var sc0      = (project.scenarios || [])[0] || 'plan';
   var iconBase = project.iconBase || null;   // e.g. "icons/" or null
@@ -82,23 +98,42 @@
     ];
   }
 
-  /* ── Per-task display info ── */
-  tasks.forEach(function (t) {
-    var sc = t.scenarios[sc0] || {};
-    t._start       = sc.start ? projectMidnight(sc.start) : null;
-    t._end         = sc.end   ? projectMidnight(sc.end)   : null;
-    t._complete    = (sc.complete != null) ? sc.complete : 0;
-    t._milestone   = !!sc.milestone;
-    t._isContainer = !!t.isContainer;
+  /* ── Per-row display info (task rows only) ── */
+  rows.forEach(function (r) {
+    if (r.rowType !== 'task' && r.rowType !== undefined) { return; }
+    var sc = (r.scenarios || {})[sc0] || {};
+    r._start       = sc.start ? projectMidnight(sc.start) : null;
+    r._end         = sc.end   ? projectMidnight(sc.end)   : null;
+    r._complete    = (sc.complete != null) ? sc.complete : 0;
+    r._milestone   = !!sc.milestone;
+    r._isContainer = !!r.isContainer;
   });
 
 
-  var projectStart = project.start ? projectMidnight(project.start) : (tasks[0] && tasks[0]._start) || new Date();
+  var projectStart = project.start ? projectMidnight(project.start) : (rows[0] && rows[0]._start) || new Date();
   var projectEnd   = project.end   ? projectMidnight(project.end)   : new Date(projectStart.getTime() + 86400000 * 30);
   var nowDate      = project.now   ? projectMidnight(project.now)   : new Date();
 
-  var chartH = tasks.length * ROW_H;
-  var svgH   = chartH + HDR_H;
+  /* ── Row height helpers ── */
+  function rowVisualHeight(row) {
+    return ROW_H * ((row.rowSpan || 1));
+  }
+
+  /* Compute array of cumulative Y offsets (one per row, plus total at end). */
+  function buildYOffsets() {
+    var offsets = [];
+    var y = 0;
+    rows.forEach(function (r) {
+      offsets.push(y);
+      y += rowVisualHeight(r);
+    });
+    offsets.push(y);  // sentinel: total chart height
+    return offsets;
+  }
+
+  var yOffsets = buildYOffsets();
+  var chartH   = yOffsets[yOffsets.length - 1];
+  var svgH     = chartH + HDR_H;
 
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
@@ -137,46 +172,48 @@
     hrow.appendChild(th);
   });
 
-  /* Task rows */
+  /* Data rows */
   var tbody = document.createElement('tbody');
   table.appendChild(tbody);
-  tasks.forEach(function (t, i) {
-    var sc  = t.scenarios[sc0] || {};
-    var tr  = document.createElement('tr');
-    var bg  = (i % 2 === 0) ? C.rowEven : C.rowOdd;
+
+  rows.forEach(function (row, i) {
+    var span    = row.rowSpan || 1;
+    var rowType = row.rowType || 'task';
+    var isTask  = rowType === 'task';
+    var sc      = isTask ? ((row.scenarios || {})[sc0] || {}) : {};
+    var bg      = (i % 2 === 0) ? C.rowEven : C.rowOdd;
+
+    /* First TR for this logical row */
+    var tr = document.createElement('tr');
     tr.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;' +
-                       (t._isContainer ? 'font-weight:bold;' : '');
+                       (isTask && row._isContainer ? 'font-weight:bold;' : '');
 
     cols.forEach(function (col) {
-      var td   = document.createElement('td');
+      var td = document.createElement('td');
       td.style.cssText =
-        'padding:1px 4px;text-align:' + col.align + ';border:1px solid #9a9a9a;';
+        'padding:1px 4px;text-align:' + col.align + ';border:1px solid #9a9a9a;' +
+        'vertical-align:middle;';
+      if (span > 1) { td.rowSpan = span; }
 
       if (col.id === 'name') {
-        /* Icon + indented name — flex row so icon and text stay side-by-side */
+        /* Icon + indented name */
         var nameDiv = document.createElement('div');
         nameDiv.style.cssText =
           'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
-        if (iconBase) {
+        if (isTask && iconBase) {
           var img = document.createElement('img');
-          img.src = iconBase + (t._isContainer ? 'taskgroup' : 'task') + '.png';
+          img.src = iconBase + (row._isContainer ? 'taskgroup' : 'task') + '.png';
           img.style.cssText = 'flex-shrink:0;margin-right:3px;';
           nameDiv.appendChild(img);
         }
         var nameSpan = document.createElement('span');
         nameSpan.style.cssText = 'overflow:hidden;white-space:nowrap;';
-        nameSpan.textContent =
-          '\u00a0'.repeat(Math.max(0, (t.level - 1) * 2)) + (t.name || '');
+        var indent = Math.max(0, ((row.level || 1) - 1) * 2);
+        nameSpan.textContent = '\u00a0'.repeat(indent) + (row.name || '');
         nameDiv.appendChild(nameSpan);
         td.appendChild(nameDiv);
       } else {
-        var text = '';
-        if      (col.id === 'bsi')     { text = t.wbs || ''; }
-        else if (col.id === 'start')   { text = fmtDate(sc.start); }
-        else if (col.id === 'end')     { text = fmtDate(sc.end);   }
-        else if (col.id === 'effort')  { text = sc.effort  || ''; }
-        else if (col.id === 'cost')    { text = sc.cost    || ''; }
-        else if (col.id === 'revenue') { text = sc.revenue || ''; }
+        var text = getCellText(row, col, sc);
         td.textContent = text;
         td.title       = text;
       }
@@ -184,7 +221,38 @@
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
+
+    /* Extra empty TRs for additional scenario sub-rows (span > 1) */
+    for (var s = 1; s < span; s++) {
+      var tr2 = document.createElement('tr');
+      tr2.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;';
+      tbody.appendChild(tr2);
+    }
   });
+
+  /* Return the text for a left-panel cell given the row, column and primary
+   * scenario data.  Falls back to row.cols[col.id] for resource rows. */
+  function getCellText(row, col, sc) {
+    var rowType = row.rowType || 'task';
+    var isTask  = rowType === 'task';
+
+    if (isTask) {
+      if      (col.id === 'bsi')     { return row.wbs || ''; }
+      else if (col.id === 'start')   { return fmtDate(sc.start); }
+      else if (col.id === 'end')     { return fmtDate(sc.end);   }
+      else if (col.id === 'effort')  { return sc.effort  || ''; }
+      else if (col.id === 'cost')    { return sc.cost    || ''; }
+      else if (col.id === 'revenue') { return sc.revenue || ''; }
+      return '';
+    } else {
+      /* Resource / nested rows */
+      if (col.id === 'no')   { return String(row.no || ''); }
+      if (col.id === 'name') { return row.name || ''; }  /* handled above */
+      /* Other columns come from row.cols */
+      if (row.cols && row.cols[col.id] != null) { return row.cols[col.id]; }
+      return '';
+    }
+  }
 
   /* ── Right panel ── */
   var rightPanel = document.createElement('div');
@@ -247,6 +315,18 @@
   var baseXScale = d3.scaleUtc()
     .domain([projectStart, projectEnd])
     .range([0, getChartWidth()]);
+
+  /* Apply initialScale from project metadata (e.g. 'week' for weekly column). */
+  if (project.initialScale === 'week') {
+    var domainMs  = projectEnd.getTime() - projectStart.getTime();
+    var weekMs    = 7 * 86400 * 1000;
+    var chartW    = getChartWidth();
+    /* Scale factor so that one week maps to chartW pixels */
+    var scaleFactor = domainMs / weekMs;
+    baseXScale = d3.scaleUtc()
+      .domain([projectStart, new Date(projectStart.getTime() + weekMs)])
+      .range([0, chartW]);
+  }
 
   var currentXScale = baseXScale.copy();
 
@@ -416,29 +496,34 @@
   function renderStripes(xScale) {
     clearG(gStripes);
     var w = getChartWidth();
-    tasks.forEach(function (t, i) {
+    rows.forEach(function (row, i) {
+      var y = yOffsets[i];
+      var h = rowVisualHeight(row);
       svgEl('rect', gStripes, {
-        x: 0, y: i * ROW_H, width: w, height: ROW_H,
+        x: 0, y: y, width: w, height: h,
         fill: (i % 2 === 0) ? C.rowEven : C.rowOdd
       });
       svgEl('line', gStripes, {
-        x1: 0, y1: (i + 1) * ROW_H - 0.5, x2: w, y2: (i + 1) * ROW_H - 0.5,
+        x1: 0, y1: y + h - 0.5, x2: w, y2: y + h - 0.5,
         stroke: C.headerBorder, 'stroke-width': 1
       });
     });
   }
 
-  /* ── Off-duty zones (weekends / holidays per task) ── */
+  /* ── Off-duty zones (weekends / holidays per task row) ── */
   function renderTimeOff(xScale) {
     clearG(gTimeOff);
-    tasks.forEach(function (t, i) {
-      var zones = (t.scenarios[sc0] || {}).timeoff || [];
+    rows.forEach(function (row, i) {
+      if ((row.rowType || 'task') !== 'task') { return; }
+      var y    = yOffsets[i];
+      var h    = rowVisualHeight(row);
+      var zones = ((row.scenarios || {})[sc0] || {}).timeoff || [];
       zones.forEach(function (zone) {
         var x0 = xScale(new Date(zone[0] * 1000));
         var x1 = xScale(new Date(zone[1] * 1000));
         if (x1 <= 0 || x0 >= getChartWidth()) { return; }
         svgEl('rect', gTimeOff, {
-          x: x0, y: i * ROW_H, width: x1 - x0, height: ROW_H,
+          x: x0, y: y, width: x1 - x0, height: h,
           fill: C.offduty
         });
       });
@@ -467,26 +552,47 @@
     }
   }
 
-  /* ── Task bars ── */
+  /* ── Task bars + load stacks ── */
   function renderBars(xScale) {
     clearG(gBars);
-    tasks.forEach(function (t, i) {
-      if (!t._start || !t._end) { return; }
-      var yCenter = i * ROW_H + ROW_H / 2;
-      var g = makeG('tj-task', gBars);
-      if (t._milestone) {
-        renderMilestone(g, xScale, t, yCenter);
-      } else if (t._isContainer) {
-        renderContainer(g, xScale, t, yCenter);
+    var w = getChartWidth();
+
+    rows.forEach(function (row, i) {
+      var rowType = row.rowType || 'task';
+      var y0      = yOffsets[i];
+
+      if (rowType === 'task') {
+        /* One bar per scenario, stacked vertically */
+        var scenarios = project.scenarios || [sc0];
+        scenarios.forEach(function (scId, s) {
+          if (s >= (row.rowSpan || 1)) { return; }
+          var sc      = (row.scenarios || {})[scId] || {};
+          var yCenter = y0 + s * ROW_H + ROW_H / 2;
+          if (!sc.start || !sc.end) { return; }
+          var tStart = projectMidnight(sc.start);
+          var tEnd   = projectMidnight(sc.end);
+          var g      = makeG('tj-task', gBars);
+          if (sc.milestone) {
+            renderMilestone(g, xScale, tStart, yCenter);
+          } else if (row._isContainer && s === 0) {
+            renderContainer(g, xScale, tStart, tEnd, yCenter);
+          } else if (row._isContainer) {
+            /* additional scenarios for containers: simple bar */
+            renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
+          } else {
+            renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
+          }
+        });
       } else {
-        renderTaskBar(g, xScale, t, yCenter);
+        /* Load stack row — render proportional bars for primary scenario */
+        renderLoadStack(row, y0, xScale, w);
       }
     });
   }
 
-  function renderTaskBar(g, xScale, t, yCenter) {
-    var x  = xScale(t._start);
-    var x2 = xScale(t._end);
+  function renderTaskBar(g, xScale, tStart, tEnd, yCenter, complete) {
+    var x  = xScale(tStart);
+    var x2 = xScale(tEnd);
     var w  = Math.max(2, x2 - x);
     var bh = BAR_HALF;
 
@@ -495,7 +601,7 @@
     svgEl('rect', g, { x: x + 1, y: yCenter - bh + 1,
                        width: Math.max(0, w - 2), height: bh * 2 - 2,
                        fill: C.taskbar });
-    var pct = Math.max(0, Math.min(100, t._complete || 0));
+    var pct = Math.max(0, Math.min(100, complete || 0));
     if (pct > 0) {
       svgEl('rect', g, { x: x + 1, y: yCenter - bh / 2,
                          width: Math.max(0, (w - 2) * pct / 100),
@@ -503,9 +609,9 @@
     }
   }
 
-  function renderContainer(g, xScale, t, yCenter) {
-    var x   = xScale(t._start);
-    var x2  = xScale(t._end);
+  function renderContainer(g, xScale, tStart, tEnd, yCenter) {
+    var x   = xScale(tStart);
+    var x2  = xScale(tEnd);
     var w   = Math.max(2, x2 - x);
     var s   = CONT_HALF;
     var top = yCenter - s;
@@ -524,8 +630,8 @@
     });
   }
 
-  function renderMilestone(g, xScale, t, yCenter) {
-    var cx = xScale(t._start);
+  function renderMilestone(g, xScale, tStart, yCenter) {
+    var cx = xScale(tStart);
     var r  = MS_HALF;
     svgEl('polygon', g, {
       points: cx+','+(yCenter-r)+' '+(cx+r)+','+yCenter+' '+
@@ -534,47 +640,85 @@
     });
   }
 
+  /* Render proportional load-stack bars (top-down) for a non-task row.
+   * Each daily bucket becomes a column of stacked coloured rectangles whose
+   * heights are proportional to busy/assigned/free work values. */
+  function renderLoadStack(row, yTop, xScale, chartWidth) {
+    var scId = (project.scenarios || [sc0])[0] || sc0;
+    var ld   = row.loadData && row.loadData[scId];
+    if (!ld || !ld.buckets || !ld.buckets.length) { return; }
+
+    var categories = ld.categories || ['busy', 'free'];
+    var stackH     = ROW_H - 2;   /* leave 1px margin top/bottom */
+
+    ld.buckets.forEach(function (bucket) {
+      var x0 = xScale(new Date(bucket[0] * 1000));
+      var x1 = xScale(new Date((bucket[0] + 86400) * 1000));
+      if (x1 <= 0 || x0 >= chartWidth) { return; }
+      var bw = x1 - x0;
+      if (bw < 0.5) { return; }
+
+      var vals  = bucket.slice(1);
+      var total = 0;
+      vals.forEach(function (v) { total += Math.max(0, v || 0); });
+      if (total <= 0) { return; }
+
+      var yUsed = 0;
+      vals.forEach(function (v, ci) {
+        if (ci >= categories.length) { return; }
+        var h = Math.max(0, v || 0) / total * stackH;
+        if (h < 0.5) { return; }
+        svgEl('rect', gBars, {
+          x: x0, y: yTop + 1 + yUsed, width: bw, height: h,
+          fill: loadCatColor[categories[ci]] || '#888'
+        });
+        yUsed += h;
+      });
+    });
+  }
+
   /* ── Dependency arrows ── */
   function renderArrows(xScale) {
     clearG(gArrows);
 
-    var taskIdx = {};
-    tasks.forEach(function (t, i) { taskIdx[t.id] = { task: t, row: i }; });
+    /* Build index: rowId → { row, rowIndex } for task rows only. */
+    var rowIdx = {};
+    rows.forEach(function (r, i) {
+      if ((r.rowType || 'task') === 'task') {
+        rowIdx[r.id] = { row: r, idx: i };
+      }
+    });
 
-    tasks.forEach(function (t, i) {
-      if (!t.depends || !t.depends.length) { return; }
-      t.depends.forEach(function (dep) {
+    rows.forEach(function (row, i) {
+      if ((row.rowType || 'task') !== 'task') { return; }
+      if (!row.depends || !row.depends.length) { return; }
+      row.depends.forEach(function (dep) {
         if ((dep.scenario || sc0) !== sc0) { return; }
-        var predInfo = taskIdx[dep.id];
+        var predInfo = rowIdx[dep.id];
         if (!predInfo) { return; }
-        var pred = predInfo.task;
-        if (!pred._end || !t._start) { return; }
+        var pred = predInfo.row;
+        if (!pred._end || !row._start) { return; }
 
-        /* Skip inherited dependencies: if t's parent is visible and also
-         * depends on this same predecessor, the arrow is already represented
-         * by the parent's arrow (matches GanttChart#generateTaskDepLines). */
-        if (t.parent) {
-          var parentInfo = taskIdx[t.parent];
-          if (parentInfo && parentInfo.task.depends && parentInfo.task.depends.some(function (pd) {
+        /* Skip inherited dependencies. */
+        if (row.parent) {
+          var parentInfo = rowIdx[row.parent];
+          if (parentInfo && parentInfo.row.depends && parentInfo.row.depends.some(function (pd) {
             return pd.id === dep.id && (pd.scenario || sc0) === sc0;
           })) { return; }
         }
 
         var sx = xScale(pred._end);
-        var sy = predInfo.row * ROW_H + ROW_H / 2;
-        var ex = xScale(t._start);
-        var ey = i * ROW_H + ROW_H / 2;
+        var sy = yOffsets[predInfo.idx] + ROW_H / 2;
+        var ex = xScale(row._start);
+        var ey = yOffsets[i] + ROW_H / 2;
 
         var x1 = sx + MIN_START_GAP;
         var x2 = ex - MIN_END_GAP;
         var pathStr;
         if (x1 < x2) {
-          /* Strategy 1: direct 3-segment path (matches GanttRouter strategy 1) */
           var xSeg = x1 + (x2 - x1) / 2;
           pathStr = 'M'+sx+','+sy+' H'+xSeg+' V'+ey+' H'+ex;
         } else {
-          /* Strategy 2: complex U-shape (matches GanttRouter strategy 2)
-           * sx,sy → x1,sy → x1,ySeg → x2,ySeg → x2,ey → ex,ey  */
           var deltaY = sy < ey ? 1 : -1;
           var ySeg   = sy + 8 * deltaY;
           var pts    = [[sx, sy], [x1, sy]];
@@ -582,8 +726,8 @@
             pts.push([x1, ySeg], [x2, ySeg]);
           }
           pts.push([x2, ey], [ex, ey]);
-          pathStr = pts.map(function (p, i) {
-            return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+          pathStr = pts.map(function (p, pi) {
+            return (pi === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
           }).join(' ');
         }
 

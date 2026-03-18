@@ -343,22 +343,22 @@ textreport frame "" {
   }
 
   textreport development "Development" {
-    formats html
+    formats htmljs
     center '<[report id="development"]>'
   }
 
   textreport "Deliveries" {
-    formats html
+    formats htmljs
     center '<[report id="deliveries"]>'
   }
 
   textreport "ContactList" {
-    formats html
+    formats htmljs
     title "Contact List"
     center '<[report id="contactList"]>'
   }
   textreport "ResourceGraph" {
-    formats html
+    formats htmljs
     title "Resource Graph"
     center '<[report id="resourceGraph"]>'
   }
