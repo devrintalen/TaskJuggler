@@ -115,7 +115,7 @@ class TaskJuggler
     def generate(allReports, currentReports, reportDef, parentElement)
       element = nextParentElement = nextParentReport = nil
       currentReports.each do |report|
-        hasURL = report.get('formats').include?(:html)
+        hasURL = (report.get('formats') & %i[html htmljs]).any?
         # Only generate menu entries for container reports or leaf reports
         # have a HTML output format.
         next if (report.leaf? && !hasURL) || !allReports.include?(report)
@@ -210,7 +210,7 @@ class TaskJuggler
     def findReportURL(report, allReports, reportDef)
       return nil unless allReports.include?(report)
 
-      if report.get('formats').include?(:html)
+      if (report.get('formats') & %i[html htmljs]).any?
         # The element references an HTML report. Point to it.
         if @project.reportContexts.last.report.interactive?
           url = "/taskjuggler?project=#{report.project['projectid']};" +
