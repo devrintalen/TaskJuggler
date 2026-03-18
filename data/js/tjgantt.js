@@ -482,6 +482,16 @@
         var pred = predInfo.task;
         if (!pred._end || !t._start) { return; }
 
+        /* Skip inherited dependencies: if t's parent is visible and also
+         * depends on this same predecessor, the arrow is already represented
+         * by the parent's arrow (matches GanttChart#generateTaskDepLines). */
+        if (t.parent) {
+          var parentInfo = taskIdx[t.parent];
+          if (parentInfo && parentInfo.task.depends && parentInfo.task.depends.some(function (pd) {
+            return pd.id === dep.id && (pd.scenario || sc0) === sc0;
+          })) { return; }
+        }
+
         var sx = xScale(pred._end);
         var sy = predInfo.row * ROW_H + ROW_H / 2;
         var ex = xScale(t._start);
