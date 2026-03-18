@@ -407,7 +407,9 @@
      */
 
   /* ── Now line ── */
-    /* TODO This should be 1px and be on top of the tasks, milestones, and arrows */
+    /* TODO This should be 1px and be on top of the tasks, milestones, and arrows,
+     * but (confusingly) behind row grid lines?
+     */
   function renderNowLine(xScale) {
     clearG(gNow);
     var x = xScale(nowDate);
