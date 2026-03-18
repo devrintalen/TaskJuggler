@@ -153,7 +153,7 @@ class TaskJuggler
         'columns'   => requested_cols,
         'iconBase'  => icon_base,
         'tz'        => TjTime.timeZone,
-        'tzOffset'  => (@project['start'] ? @project['start'].localtime.utc_offset : 0)
+        'tzOffset'  => (@project['start'] ? Time.at(@project['start'].to_i).localtime.utc_offset : 0)
       }
 
       gantt_data = {
