@@ -44,21 +44,6 @@
     return DAY_ABBR[d.getDay()] + ' ' + s;
   }
 
-  /* Left-panel column definitions.
-   * 'bsi' maps to t.wbs.  'chart' is skipped (it IS the SVG panel).      */
-    /* TODO This shouldn't be a hard-coded list of columns. The
-     * columns to include are specified by the columns attribute in
-     * the taskreport attributes. Other columns could be requested.
-     */
-  var ALL_COLS = {
-    bsi     : { title: 'WBS',     align: 'left'  },
-    name    : { title: 'Name',    align: 'left'  },
-    start   : { title: 'Start',  align: 'left'  },
-    end     : { title: 'End',    align: 'left'  },
-    effort  : { title: 'Effort', align: 'right' },
-    cost    : { title: 'Cost',   align: 'right' },
-    revenue : { title: 'Revenue', align: 'right' }
-  };
 
   /* ───────────────────────── Bootstrap ───────────────────────────────── */
   var data = window.tjGanttData;
@@ -73,11 +58,16 @@
   var sc0      = (project.scenarios || [])[0] || 'plan';
   var iconBase = project.iconBase || null;   // e.g. "icons/" or null
 
-  /* Columns to show */
-  var colIds = (project.columns || []).filter(function (id) {
-    return id !== 'chart' && ALL_COLS[id];
-  });
-  if (!colIds.length) { colIds = ['bsi', 'name', 'start', 'end']; }
+  /* Columns to show — array of {id, title, align} objects from the backend */
+  var cols = (project.columns || []);
+  if (!cols.length) {
+    cols = [
+      { id: 'bsi',   title: 'BSI',   align: 'left' },
+      { id: 'name',  title: 'Name',  align: 'left' },
+      { id: 'start', title: 'Start', align: 'left' },
+      { id: 'end',   title: 'End',   align: 'left' }
+    ];
+  }
 
   /* ── Per-task display info ── */
   tasks.forEach(function (t) {
@@ -123,13 +113,12 @@
   table.appendChild(thead);
   var hrow = document.createElement('tr');
   thead.appendChild(hrow);
-  colIds.forEach(function (id) {
-    var def = ALL_COLS[id];
+  cols.forEach(function (col) {
     var th  = document.createElement('th');
-    th.textContent = def.title;
+    th.textContent = col.title;
     th.style.cssText =
       'position:sticky;top:0;z-index:10;' +
-      'padding:2px 4px;text-align:' + def.align + ';' +
+      'padding:2px 4px;text-align:' + col.align + ';' +
       'height:' + HDR_H + 'px;border:1px solid #9a9a9a;' +
       'box-sizing:border-box;background:' + C.headerBg + ';color:' + C.headerFg + ';';
     hrow.appendChild(th);
@@ -145,13 +134,12 @@
     tr.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;' +
                        (t._isContainer ? 'font-weight:bold;' : '');
 
-    colIds.forEach(function (id) {
-      var def  = ALL_COLS[id];
+    cols.forEach(function (col) {
       var td   = document.createElement('td');
       td.style.cssText =
-        'padding:1px 4px;text-align:' + def.align + ';border:1px solid #9a9a9a;';
+        'padding:1px 4px;text-align:' + col.align + ';border:1px solid #9a9a9a;';
 
-      if (id === 'name') {
+      if (col.id === 'name') {
         /* Icon + indented name — flex row so icon and text stay side-by-side */
         var nameDiv = document.createElement('div');
         nameDiv.style.cssText =
@@ -170,12 +158,12 @@
         td.appendChild(nameDiv);
       } else {
         var text = '';
-        if      (id === 'bsi')     { text = t.wbs || ''; }
-        else if (id === 'start')   { text = fmtDate(sc.start); }
-        else if (id === 'end')     { text = fmtDate(sc.end);   }
-        else if (id === 'effort')  { text = sc.effort  || ''; }
-        else if (id === 'cost')    { text = sc.cost    || ''; }
-        else if (id === 'revenue') { text = sc.revenue || ''; }
+        if      (col.id === 'bsi')     { text = t.wbs || ''; }
+        else if (col.id === 'start')   { text = fmtDate(sc.start); }
+        else if (col.id === 'end')     { text = fmtDate(sc.end);   }
+        else if (col.id === 'effort')  { text = sc.effort  || ''; }
+        else if (col.id === 'cost')    { text = sc.cost    || ''; }
+        else if (col.id === 'revenue') { text = sc.revenue || ''; }
         td.textContent = text;
         td.title       = text;
       }

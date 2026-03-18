@@ -13,6 +13,7 @@
 #
 
 require 'taskjuggler/reports/ReportBase'
+require 'taskjuggler/reports/TableReport'
 require 'taskjuggler/PropertyList'
 require 'taskjuggler/LogicalExpression'
 
@@ -54,9 +55,22 @@ class TaskJuggler
 
       # Columns requested in the report definition (excluding 'chart' which is
       # the SVG panel itself).
-      requested_cols = (@report.get('columns') || []).map(&:id).reject { |c| c == 'chart' }
+      col_defs = (@report.get('columns') || []).reject { |c| c.id == 'chart' }
       # Fall back to a sensible default when none are specified.
-      requested_cols = %w( bsi name start end ) if requested_cols.empty?
+      if col_defs.empty?
+        %w( bsi name start end ).each do |id|
+          title = TableReport.defaultColumnTitle(id) || id.capitalize
+          col_defs << TableColumnDefinition.new(id, title)
+        end
+      end
+      # Build column metadata objects — title and alignment come from the
+      # TableColumnDefinition (user-customisable title) and TableReport's
+      # alignment table.  Unknown columns default to left-aligned.
+      requested_cols = col_defs.map do |col|
+        align_sym = TableReport.alignment(col.id, nil)
+        align_str = (align_sym == :right) ? 'right' : 'left'
+        { 'id' => col.id, 'title' => col.title, 'align' => align_str }
+      end
 
       # Build the tasks JSON array.
       tasks_json = @taskList.map do |task|
