@@ -333,7 +333,7 @@
       if (x1 - lx > 5) {
         var txt = svgEl('text', gHeaderLg, {
           x: lx, y: rowH - 5,
-          fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif'
+          fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif', 'font-weight': 'bold'
         });
         txt.textContent = cfg.largeFmt(d);
       }
@@ -351,7 +351,7 @@
       if (x1 - lx > 4) {
         var txt2 = svgEl('text', gHeaderSm, {
           x: lx, y: HDR_H - 4,
-          fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif'
+          fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif', 'font-weight': 'bold'
         });
         txt2.textContent = cfg.smallFmt(d);
       }
