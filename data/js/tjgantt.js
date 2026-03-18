@@ -46,6 +46,10 @@
 
   /* Left-panel column definitions.
    * 'bsi' maps to t.wbs.  'chart' is skipped (it IS the SVG panel).      */
+    /* TODO This shouldn't be a hard-coded list of columns. The
+     * columns to include are specified by the columns attribute in
+     * the taskreport attributes. Other columns could be requested.
+     */
   var ALL_COLS = {
     bsi     : { title: 'WBS',     align: 'left'  },
     name    : { title: 'Name',    align: 'left'  },
@@ -322,6 +326,10 @@
     var rowH = HDR_H / 2;
 
     /* Background (in gHeaderBg = first child of gHeader) */
+      /* TODO "borders" between header elements should match the
+       * the 1px 0x9a9a9a borders between the table elements on
+       * the left side.
+       */
     svgEl('rect', gHeaderBg, { x: 0, y: 0, width: w, height: HDR_H, fill: C.headerBg });
     svgEl('line', gHeaderBg, { x1: 0, y1: rowH - 0.5, x2: w, y2: rowH - 0.5,
                                 stroke: '#555', 'stroke-width': 1 });
@@ -388,7 +396,18 @@
     });
   }
 
+    /* TODO horizontal lines between rows should match
+     * the 1px 0x9a9a9a borders between table cells on
+     * the left side.
+     */
+
+    /* TODO there are vertical grey bars in the standard chart -
+     * maybe these are for weekends? Investigate the ruby code
+     * to determine and replicate them here.
+     */
+
   /* ── Now line ── */
+    /* TODO This should be 1px and be on top of the tasks, milestones, and arrows */
   function renderNowLine(xScale) {
     clearG(gNow);
     var x = xScale(nowDate);
