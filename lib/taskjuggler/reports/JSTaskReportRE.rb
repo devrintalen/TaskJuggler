@@ -14,6 +14,7 @@
 
 require 'taskjuggler/reports/ReportBase'
 require 'taskjuggler/reports/TableReport'
+require 'taskjuggler/Interval'
 require 'taskjuggler/PropertyList'
 require 'taskjuggler/LogicalExpression'
 
@@ -73,6 +74,11 @@ class TaskJuggler
       end
 
       # Build the tasks JSON array.
+      # Minimum off-duty zone duration: 1 day, matching the static chart at
+      # week scale.  Captures weekends and full-day holidays.
+      min_time_off = 86400
+      proj_iv = TimeInterval.new(@project['start'], @project['end'])
+
       tasks_json = @taskList.map do |task|
         scenarios_data = {}
         @scenarios.each do |idx|
@@ -89,6 +95,11 @@ class TaskJuggler
             duration_days = ((t_end - t_start) / 86400.0).round
           end
 
+          timeoff_zones = task.collectTimeOffIntervals(idx, proj_iv, min_time_off)
+          timeoff_json  = timeoff_zones.map do |zone|
+            [ zone.start.strftime('%Y-%m-%d'), zone.end.strftime('%Y-%m-%d') ]
+          end
+
           scenarios_data[sc_id] = {
             'start'     => start_str,
             'end'       => end_str,
@@ -97,7 +108,8 @@ class TaskJuggler
             'milestone' => milestone,
             'effort'    => query_task_str(task, 'effort',  idx),
             'cost'      => query_task_str(task, 'cost',    idx),
-            'revenue'   => query_task_str(task, 'revenue', idx)
+            'revenue'   => query_task_str(task, 'revenue', idx),
+            'timeoff'   => timeoff_json
           }
         end
 
