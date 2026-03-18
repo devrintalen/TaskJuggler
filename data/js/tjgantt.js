@@ -47,13 +47,13 @@
   /* Left-panel column definitions.
    * 'bsi' maps to t.wbs.  'chart' is skipped (it IS the SVG panel).      */
   var ALL_COLS = {
-    bsi     : { title: 'WBS',     width: 48,  align: 'left'  },
-    name    : { title: 'Name',    width: 180, align: 'left'  },
-    start   : { title: 'Start',   width: 86,  align: 'left'  },
-    end     : { title: 'End',     width: 86,  align: 'left'  },
-    effort  : { title: 'Effort',  width: 52,  align: 'right' },
-    cost    : { title: 'Cost',    width: 64,  align: 'right' },
-    revenue : { title: 'Revenue', width: 72,  align: 'right' }
+    bsi     : { title: 'WBS',     align: 'left'  },
+    name    : { title: 'Name',    align: 'left'  },
+    start   : { title: 'Start',  align: 'left'  },
+    end     : { title: 'End',    align: 'left'  },
+    effort  : { title: 'Effort', align: 'right' },
+    cost    : { title: 'Cost',   align: 'right' },
+    revenue : { title: 'Revenue', align: 'right' }
   };
 
   /* ───────────────────────── Bootstrap ───────────────────────────────── */
@@ -75,11 +75,6 @@
   });
   if (!colIds.length) { colIds = ['bsi', 'name', 'start', 'end']; }
 
-  /* Left panel content width = sum of column widths.
-   * The outer div is allowed to size to fit its content; the scrollbar sits
-   * inside that natural width so it never clips any column.                */
-  var LEFT_CONTENT_W = colIds.reduce(function (s, id) { return s + ALL_COLS[id].width; }, 0);
-
   /* ── Per-task display info ── */
   tasks.forEach(function (t) {
     var sc = t.scenarios[sc0] || {};
@@ -89,6 +84,7 @@
     t._milestone   = !!sc.milestone;
     t._isContainer = !!t.isContainer;
   });
+
 
   var projectStart = project.start ? new Date(project.start) : (tasks[0] && tasks[0]._start) || new Date();
   var projectEnd   = project.end   ? new Date(project.end)   : new Date(projectStart.getTime() + 86400000 * 30);
@@ -115,8 +111,7 @@
   wrapper.appendChild(leftPanel);
 
   var table = document.createElement('table');
-  table.style.cssText =
-    'width:' + LEFT_CONTENT_W + 'px;border-collapse:collapse;table-layout:fixed;';
+  table.style.cssText = 'border-collapse:collapse;white-space:nowrap;';
   leftPanel.appendChild(table);
 
   /* Header row */
@@ -130,10 +125,9 @@
     th.textContent = def.title;
     th.style.cssText =
       'position:sticky;top:0;z-index:10;' +
-      'padding:2px 4px;text-align:' + def.align + ';width:' + def.width + 'px;' +
+      'padding:2px 4px;text-align:' + def.align + ';' +
       'height:' + HDR_H + 'px;border:1px solid #9a9a9a;' +
-      'white-space:nowrap;overflow:hidden;box-sizing:border-box;' +
-      'background:' + C.headerBg + ';color:' + C.headerFg + ';';
+      'box-sizing:border-box;background:' + C.headerBg + ';color:' + C.headerFg + ';';
     hrow.appendChild(th);
   });
 
@@ -151,9 +145,7 @@
       var def  = ALL_COLS[id];
       var td   = document.createElement('td');
       td.style.cssText =
-        'padding:1px 4px;overflow:hidden;white-space:nowrap;' +
-        'text-align:' + def.align + ';width:' + def.width + 'px;' +
-        'border:1px solid #9a9a9a;';
+        'padding:1px 4px;text-align:' + def.align + ';border:1px solid #9a9a9a;';
 
       if (id === 'name') {
         /* Icon + indented name — flex row so icon and text stay side-by-side */
