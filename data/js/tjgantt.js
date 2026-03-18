@@ -188,7 +188,7 @@
 
   /* ── Right panel ── */
   var rightPanel = document.createElement('div');
-  rightPanel.style.cssText = 'flex:1;overflow-y:scroll;overflow-x:hidden;position:relative;';
+  rightPanel.style.cssText = 'flex:1;min-width:0;overflow-y:scroll;overflow-x:hidden;position:relative;';
   wrapper.appendChild(rightPanel);
 
   /* ── SVG ── */
@@ -197,7 +197,7 @@
   var svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', svgH);
-  svg.style.cssText = 'display:block;';
+  svg.style.cssText = 'display:block;overflow:hidden;';
   rightPanel.appendChild(svg);
 
   /* defs — arrowhead marker */
@@ -597,8 +597,6 @@
 
   /* ── Main render ── */
   function render(xScale) {
-    var w = getChartWidth();
-    svg.setAttribute('width', w);
     renderHeader(xScale);
     renderStripes(xScale);
     renderTimeOff(xScale);
@@ -612,6 +610,8 @@
 
   window.addEventListener('resize', function () {
     baseXScale.range([0, getChartWidth()]);
+    var t = d3.zoomTransform(svg);
+    currentXScale = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
     render(currentXScale);
   });
 

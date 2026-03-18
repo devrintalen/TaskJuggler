@@ -77,10 +77,6 @@ class TaskJuggler
       # We either generate the requested formats or the list of formats that
       # was specified in the report definition.
       (requestedFormats || get('formats')).each do |format|
-        # htmljs on an embedded subreport (empty filename) only affects content
-        # selection in generateIntermediateFormat; no standalone file is written.
-        next if format == :htmljs && @name.empty?
-
         if @name.empty?
           error('empty_report_file_name',
                 "Report #{@id} has output formats requested, but the " +
@@ -141,11 +137,16 @@ class TaskJuggler
       when :textreport
         @content = TextReport.new(self)
       when :taskreport
-        if get('formats').include?(:htmljs)
-          @content = JSTaskReportRE.new(self)
-        else
-          @content = TaskListRE.new(self)
-        end
+        # Use the interactive renderer if this report requests htmljs, OR if
+        # any ancestor report in the context stack requests htmljs — so that
+        # setting formats htmljs on an outer textreport is sufficient to render
+        # embedded taskreports interactively without needing formats on the
+        # embedded report (which has an empty filename and cannot write output).
+        use_js = get('formats').include?(:htmljs) ||
+                 @project.reportContexts.any? { |ctx|
+                   ctx.report.get('formats').include?(:htmljs)
+                 }
+        @content = use_js ? JSTaskReportRE.new(self) : TaskListRE.new(self)
       when :tracereport
         @content = TraceReport.new(self)
       when :statusSheet
