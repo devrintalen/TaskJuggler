@@ -471,52 +471,45 @@
   }
 
   /*
-   * Returns an LOD descriptor. Fields:
+   * Returns an LOD descriptor for the current zoom level. Fields:
    *   ppd            — pixels per day
    *   bucketDays     — merge this many daily load-stack buckets into one rect
    *   mergeTimeoffPx — coalesce adjacent timeoff zones if pixel gap < this
    *   showArrows     — render dependency arrows at all
+   *   large / small  — d3 tick intervals for the header (large = top row, small = bottom)
+   *   largeFmt / smallFmt — Intl formatters for each header row
    *
-   * Thresholds match tickConfig():
-   *   level 0: ppd < 0.2  (year scale)
-   *   level 1: ppd < 2    (quarter scale)
-   *   level 2: ppd < 15   (month scale)
-   *   level 3: ppd < 60   (week scale)
-   *   level 4: ppd >= 60  (day scale — full detail)
+   * Five zoom levels keyed on ppd:
+   *   ppd < 0.2   year scale
+   *   ppd < 2     quarter scale
+   *   ppd < 15    month scale
+   *   ppd < 60    week scale
+   *   ppd >= 60   day scale (full detail)
    */
   function computeLod(xScale) {
     var ppd = computePpd(xScale);
-    var bucketDays, mergeTimeoffPx, showArrows;
-
-    if      (ppd < 0.2) { bucketDays = 365; mergeTimeoffPx = 4; showArrows = false; }
-    else if (ppd < 2)   { bucketDays = 30;  mergeTimeoffPx = 4; showArrows = false; }
-    else if (ppd < 15)  { bucketDays = 7;   mergeTimeoffPx = 2; showArrows = true;  }
-    else if (ppd < 60)  { bucketDays = 1;   mergeTimeoffPx = 1; showArrows = true;  }
-    else                { bucketDays = 1;   mergeTimeoffPx = 0; showArrows = true;  }
-
-    return { ppd: ppd, bucketDays: bucketDays,
-             mergeTimeoffPx: mergeTimeoffPx, showArrows: showArrows };
-  }
-
-  /* Adaptive tick configuration based on pixels-per-day. */
-  function tickConfig(ppd) {
 
     if (ppd < 0.2) {
-      return { large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
+      return { ppd: ppd, bucketDays: 365, mergeTimeoffPx: 4, showArrows: false,
+               large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcYear.every(1),   smallFmt: tzFmt({ year: 'numeric' }) };
     } else if (ppd < 2) {
-      return { large: d3.utcYear.every(1),   largeFmt: tzFmt({ year: 'numeric' }),
+      return { ppd: ppd, bucketDays: 30,  mergeTimeoffPx: 4, showArrows: false,
+               large: d3.utcYear.every(1),   largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcMonth.every(3),  smallFmt: tzFmt({ month: 'short' }) };
     } else if (ppd < 15) {
-      return { large: d3.utcMonth.every(1),
+      return { ppd: ppd, bucketDays: 7,   mergeTimeoffPx: 2, showArrows: true,
+               large: d3.utcMonth.every(1),
                largeFmt: tzFmtParts({ month: 'short', year: 'numeric' }, ['month', 'year']),
                small: d3.utcMonday.every(1), smallFmt: tzFmt({ day: 'numeric' }) };
     } else if (ppd < 60) {
-      return { large: d3.utcMonday.every(1),
+      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 1, showArrows: true,
+               large: d3.utcMonday.every(1),
                largeFmt: tzFmtParts({ month: 'short', day: 'numeric' }, ['month', 'day']),
                small: d3.utcDay.every(1),    smallFmt: tzFmt({ day: 'numeric' }) };
     } else {
-      return { large: d3.utcDay.every(1),
+      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 0, showArrows: true,
+               large: d3.utcDay.every(1),
                largeFmt: tzFmtParts({ weekday: 'short', day: 'numeric', month: 'short' },
                                     ['weekday', 'day', 'month']),
                small: d3.utcHour.every(6),
@@ -530,7 +523,6 @@
     clearG(gHeaderLg);
     clearG(gHeaderSm);
 
-    var cfg  = tickConfig(lod.ppd);
     var w    = getChartWidth();
     var rowH = HDR_H / 2;
 
@@ -542,7 +534,7 @@
                                 stroke: C.headerBorder, 'stroke-width': 1 });
 
     /* Large ticks — top row */
-    var lgTicks = projectTicks(xScale, cfg.large);
+    var lgTicks = projectTicks(xScale, lod.large);
     lgTicks.forEach(function (d, i) {
       var x0 = xScale(d);
       var x1 = (i + 1 < lgTicks.length) ? xScale(lgTicks[i + 1]) : w;
@@ -555,12 +547,12 @@
           x: lx, y: rowH - 5,
           fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif', 'font-weight': 'bold'
         });
-        txt.textContent = cfg.largeFmt(d);
+        txt.textContent = lod.largeFmt(d);
       }
     });
 
     /* Small ticks — bottom row */
-    var smTicks = projectTicks(xScale, cfg.small);
+    var smTicks = projectTicks(xScale, lod.small);
     smTicks.forEach(function (d, i) {
       var x0 = xScale(d);
       var x1 = (i + 1 < smTicks.length) ? xScale(smTicks[i + 1]) : w;
@@ -573,7 +565,7 @@
           x: lx, y: HDR_H - 4,
           fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif', 'font-weight': 'bold'
         });
-        txt2.textContent = cfg.smallFmt(d);
+        txt2.textContent = lod.smallFmt(d);
       }
     });
   }
@@ -634,8 +626,7 @@
   /* ── Grid lines ── */
   function renderGrid(xScale, lod) {
     clearG(gGrid);
-    var cfg = tickConfig(lod.ppd);
-    projectTicks(xScale, cfg.small).forEach(function (d) {
+    projectTicks(xScale, lod.small).forEach(function (d) {
       var x = xScale(d);
       svgEl('line', gGrid, { x1: x, y1: 0, x2: x, y2: chartH,
                               stroke: C.gridLine, 'stroke-width': 1 });
