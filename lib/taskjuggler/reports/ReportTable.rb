@@ -27,7 +27,7 @@ class TaskJuggler
     # value should be large enough to work for all browsers.
     SCROLLBARHEIGHT = 20
 
-    attr_reader :maxIndent, :headerLineHeight, :headerFontSize
+    attr_reader :maxIndent, :headerLineHeight, :headerFontSize, :columns
     attr_accessor :equiLines, :embedded, :selfcontained, :auxDir
 
     # Create a new ReportTable object.
@@ -138,6 +138,45 @@ class TaskJuggler
       end
 
       table
+    end
+
+    # Build the rows JSON array for the interactive chart (htmljs format).
+    # Iterates @lines once; merges lines that share the same property/scope key
+    # (i.e. additional-scenario duplicates) into a single row hash by unioning
+    # their 'scenarios' or 'loadData' sub-hashes.
+    def to_htmljs
+      rows       = []
+      seen       = {}
+      resource_no = 0
+
+      @lines.each do |line|
+        key = [line.property.object_id, line.scopeLine&.property&.object_id]
+        if seen[key]
+          existing = seen[key]
+          new_data = line.to_htmljs
+          next unless new_data
+
+          # Merge per-scenario data.
+          existing_scen = existing['scenarios'] || existing['loadData']
+          new_scen      = new_data['scenarios'] || new_data['loadData']
+          existing_scen.merge!(new_scen) if existing_scen && new_scen
+
+          # Merge dependency list (task rows only).
+          if existing['depends'] && new_data['depends']
+            existing['depends'] =
+              (existing['depends'] + new_data['depends']).uniq
+          end
+
+          existing['rowSpan'] = (existing['rowSpan'] || 1) + 1
+        else
+          resource_no += 1 if line.property.is_a?(Resource) && line.scopeLine.nil?
+          row = line.to_htmljs(resource_no)
+          seen[key] = row
+          rows << row if row
+        end
+      end
+
+      rows
     end
 
     # Convert the intermediate representation into an Array of Arrays. _csv_ is

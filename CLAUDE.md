@@ -113,12 +113,10 @@ Project.report.generate(:htmljs)                      # Report.rb:71
   └─ Report#generateIntermediateFormat()              # Report.rb:115
        └─ TaskListRE.new(self)   (same as above)
 
-  └─ Report#generateHTMLJS()                          # Report.rb:266
+  └─ Report#generateHTML()                            # Report.rb:174
        └─ HTMLDocument.new(...)
-            # Embeds d3.min.js and tjgantt.js as inline <script> blocks
-            # Embeds report data as window.tjGanttData = { ... }
        └─ TaskListRE#to_html                          # TaskListRE.rb:69
-            # Detects htmljs? → calls to_htmljs path
+            # Detects htmljs_format? → calls to_htmljs path
             └─ TableReport#to_htmljs                  # TableReport.rb:157
                  # Builds JSON: project settings, scenarios, column defs, row data
                  └─ (per row) GanttLine#to_htmljs     # GanttLine.rb:126

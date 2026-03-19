@@ -21,7 +21,7 @@ class TaskJuggler
   # the provides the necessary output methods such as to_html.
   class ReportTableCell
 
-    attr_reader :line
+    attr_reader :line, :query
     attr_accessor :data, :category, :hidden, :alignment, :padding, :force_string,
                   :text, :tooltip, :showTooltipHint,
                   :iconTooltip,
@@ -192,6 +192,21 @@ class TaskJuggler
       end
 
       return columns
+    end
+
+    # Return a plain string value for use in the interactive (htmljs) chart.
+    # Hidden cells (e.g. chart column placeholders) return nil.
+    # Cells with @special (e.g. embedded ColumnTable) return nil — their data
+    # is accessed separately by ReportTableLine via the column header special.
+    def to_htmljs
+      return nil if @hidden || @special
+      val = if @text.respond_to?(:functionHandler)
+              @text.setQuery(@query)
+              @text.to_s
+            else
+              @text.to_s
+            end
+      val.empty? ? nil : val
     end
 
     private
