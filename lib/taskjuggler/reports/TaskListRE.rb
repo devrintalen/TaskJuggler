@@ -64,6 +64,22 @@ class TaskJuggler
       generateTaskList(taskList, resourceList, nil)
     end
 
+    # When called via an embedded textreport (RTFReport#to_html chain),
+    # to_html is invoked regardless of the output format.  Redirect to
+    # to_htmljs when the enclosing report is rendered as :htmljs.
+    def to_html
+      htmljs_format? ? to_htmljs : super
+    end
+
+  private
+
+    def htmljs_format?
+      @report.get('formats').include?(:htmljs) ||
+        @report.project.reportContexts.any? { |ctx|
+          ctx.report.get('formats').include?(:htmljs)
+        }
+    end
+
   end
 
 end

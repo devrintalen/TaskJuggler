@@ -233,7 +233,8 @@ EOT
       # Make sure we have some margins around the report.
       body << (frame = XMLElement.new('div', 'class' => 'tj_page'))
 
-      frame << (format == :htmljs ? @content.to_htmljs : @content.to_html)
+      frame << (format == :htmljs && @content.respond_to?(:to_htmljs) ?
+                @content.to_htmljs : @content.to_html)
 
       # The footer with some administrative information.
       frame << (div = XMLElement.new('div', 'class' => 'copyright'))
