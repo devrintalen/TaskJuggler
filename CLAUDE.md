@@ -19,8 +19,11 @@ TaskJuggler supports two HTML output modes for task reports:
 |------|------|
 | `lib/taskjuggler/reports/Report.rb` | Top-level entry point; orchestrates format selection and HTML document creation |
 | `lib/taskjuggler/reports/ReportBase.rb` | Shared base class for all report types |
-| `lib/taskjuggler/reports/TaskListRE.rb` | Intermediate representation for task list reports |
+| `lib/taskjuggler/reports/TaskListRE.rb` | Intermediate representation for task list reports; `to_html` redirects to `to_htmljs` via `htmljs_format?` for the embedded-report path |
+| `lib/taskjuggler/reports/ResourceListRE.rb` | Same as TaskListRE but for resource reports |
 | `lib/taskjuggler/reports/TableReport.rb` | Mixin/base providing `to_html` and `to_htmljs` for table-based reports |
+| `lib/taskjuggler/reports/TextReport.rb` | Layout wrapper for textreports; has no `to_htmljs` — the htmljs redirect happens inside the embedded sub-report chain |
+| `lib/taskjuggler/RichText/RTFReport.rb` | Renders an embedded `<[report id="..."]>` reference inside RichText; calls `report.to_html` on the inner Report object |
 
 ### Table Rendering
 
@@ -73,11 +76,11 @@ Project.report.generate(:html)                        # Report.rb:71
                       # Builds ReportTable with columns, lines, and cells.
                       # Gantt-column cells contain a GanttChart object.
 
-  └─ Report#generateHTML()                            # Report.rb:174
+  └─ Report#generateHTML(:html)                       # Report.rb:174
        └─ HTMLDocument.new(...)                       # sets up <html><head><body>
             # Inlines tjreport.css into <style>
-       └─ Report#to_html                              # Report.rb:156
-            └─ TaskListRE#to_html                     # TaskListRE.rb:69
+       └─ @content.to_html                            # Report.rb:156
+            └─ TaskListRE#to_html → super             # TaskListRE.rb:69
                  └─ TableReport#to_html               # TableReport.rb:111
                       └─ ReportTable#to_html          # ReportTable.rb:86
                            # Emits <table><tbody>
@@ -108,26 +111,190 @@ Project.report.generate(:html)                        # Report.rb:71
 
 ## Call Chain: Interactive HTML (`:htmljs` format)
 
+There are **two dispatch paths** to `TableReport#to_htmljs` depending on how the
+report is structured in the project file.
+
+### Path A — Direct report (`taskreport`/`resourcereport` with `formats htmljs`)
+
+`@content` is `TaskListRE`/`ResourceListRE` which inherits `to_htmljs` from
+`TableReport`. `Report#generateHTML` detects this via `respond_to?(:to_htmljs)`
+and calls it directly.
+
 ```
 Project.report.generate(:htmljs)                      # Report.rb:71
   └─ Report#generateIntermediateFormat()              # Report.rb:115
        └─ TaskListRE.new(self)   (same as above)
 
-  └─ Report#generateHTML()                            # Report.rb:174
+  └─ Report#generateHTML(:htmljs)                     # Report.rb:174
        └─ HTMLDocument.new(...)
-       └─ TaskListRE#to_html                          # TaskListRE.rb:69
-            # Detects htmljs_format? → calls to_htmljs path
+       └─ @content.respond_to?(:to_htmljs) → true
             └─ TableReport#to_htmljs                  # TableReport.rb:157
-                 # Builds JSON: project settings, scenarios, column defs, row data
-                 └─ (per row) GanttLine#to_htmljs     # GanttLine.rb:126
-                       └─ content#to_htmljs  dispatches to:
-                            GanttTaskBar#to_htmljs    # GanttTaskBar.rb:64
-                            GanttMilestone#to_htmljs  # GanttMilestone.rb:62
-                            GanttContainer#to_htmljs  # GanttContainer.rb:64
-                            GanttLoadStack#to_htmljs  # GanttLoadStack.rb:72
-                 # All to_htmljs methods return Ruby hashes → serialized to JSON
-                 # JSON embedded in <script>window.tjGanttData = {...}</script>
-                 # tjgantt.js reads this and renders the chart with D3
+                 (see below)
+```
+
+### Path B — Embedded report (`textreport` wrapping a `taskreport`/`resourcereport`)
+
+The typical pattern in the tutorial. `@content` is `TextReport` which has no
+`to_htmljs`. `generateHTML` falls back to `@content.to_html`; the redirect
+happens later inside `TaskListRE#to_html` via `htmljs_format?`.
+
+```
+Project.report.generate(:htmljs)  [outer textreport]  # Report.rb:71
+  └─ Report#generateHTML(:htmljs)                      # Report.rb:174
+       └─ @content.respond_to?(:to_htmljs) → false (TextReport)
+            └─ TextReport#to_html                      # TextReport.rb:65
+                 └─ rt_to_html('center')               # ReportBase.rb:143
+                      └─ RichTextIntermediate#to_html
+                           └─ RTFReport#to_html        # RTFReport.rb:71
+                                # pushes inner report's ReportContext
+                                └─ Report#to_html      # Report.rb:156  [inner taskreport]
+                                     └─ TaskListRE#to_html  # TaskListRE.rb:69
+                                          └─ htmljs_format? → true
+                                               └─ TableReport#to_htmljs
+                                                    (see below)
+```
+
+**Why `htmljs_format?` still exists:** `RTFReport#to_html` calls `report.to_html`
+on the inner report unconditionally. There is no `to_htmljs` plumbing in the
+RichText pipeline, so the redirect must happen at the `TaskListRE` level.
+`htmljs_format?` checks `@report.get('formats')` (for a directly-formatted report)
+and `reportContexts` (to find a parent textreport with `:htmljs`).
+
+### Common tail: `TableReport#to_htmljs`
+
+```
+TableReport#to_htmljs                                 # TableReport.rb:157
+  # Builds project_data hash: chart start/end, scenario names, column defs,
+  # now date, timezone, initialScale.
+  └─ @table.to_htmljs                                 # ReportTable.rb:147
+       # Iterates @lines once.
+       # Lines with the same (property, scopeProperty) key are duplicate
+       # scenario lines — their 'scenarios'/'loadData' hashes are merged
+       # and rowSpan is incremented.
+       └─ (per line) ReportTableLine#to_htmljs(resource_no)  # ReportTableLine.rb:80
+            # Dispatches on property/scope type:
+            ├─ Task + no scope      → build_task_row
+            ├─ Resource + no scope  → build_resource_row(no)
+            ├─ Resource + Task scope → build_nested_resource_row
+            └─ Task + Resource scope → build_nested_task_row
+            #
+            # Each builder:
+            #   1. Looks up the GanttChart via gantt_chart helper
+            #      (column header's cell1.special where definition.id == 'chart')
+            #   2. Calls gantt_chart.line_for(property, scope, scenario_idx)
+            #      to get the pre-built GanttLine for this row/scenario.
+            #   3. If a GanttLine exists → calls GanttLine#to_htmljs
+            #      (fast path: data already computed during generateIntermediateFormat)
+            #   4. If no GanttLine (e.g. 'weekly' column report with no 'chart' column)
+            #      → falls back to htmljs_load_buckets / htmljs_collect_timeoff
+            #      (replicates GanttLine's per-day bucket computation)
+            #
+            └─ GanttLine#to_htmljs                    # GanttLine.rb:126
+                 # Task line → { type:'task', bar:{...}, timeoff:[...] }
+                 # Resource/load line → { type:'resource', categories:[...],
+                 #                        buckets:[[t,v...]], timeoff:[...] }
+                 └─ content#to_htmljs  dispatches to:
+                      GanttTaskBar#to_htmljs           # GanttTaskBar.rb:64
+                      GanttMilestone#to_htmljs         # GanttMilestone.rb:62
+                      GanttContainer#to_htmljs         # GanttContainer.rb:64
+                      GanttLoadStack#to_htmljs         # GanttLoadStack.rb:72
+
+  # All to_htmljs methods return Ruby hashes.
+  # TableReport serializes the full tree to JSON via htmljs_to_json (no gem dep).
+  # JSON embedded as: <script>window.tjGanttData = {...};</script>
+  # d3.min.js and tjgantt.js are then inlined.
+  # tjgantt.js reads window.tjGanttData and renders the chart with D3.
+```
+
+---
+
+## `window.tjGanttData` JSON Schema
+
+```
+{
+  "project": {
+    "start": "YYYY-MM-DD",      # chart period start
+    "end":   "YYYY-MM-DD",      # chart period end
+    "now":   "YYYY-MM-DD",      # today marker
+    "scenarios": ["plan", ...], # list of scenario id strings
+    "columns": [                # non-chart, non-weekly columns
+      { "id": "name", "title": "Name", "align": "left" }, ...
+    ],
+    "iconBase": "path/to/icons/",  # null if selfcontained
+    "tz": "UTC",
+    "tzOffset": 0,
+    "initialScale": "week"      # null unless 'weekly' column present
+  },
+  "rows": [                     # one entry per unique (property, scope) pair
+    # Task row
+    { "rowType": "task",
+      "rowSpan": 2,             # number of scenario lines merged into this row
+      "id": "proj.task",        # fullId
+      "name": "Task Name",
+      "wbs": "1.2",
+      "parent": "proj",         # null if top-level
+      "level": 2,
+      "isContainer": false,
+      "scenarios": {
+        "plan": {
+          "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "duration": 5,
+          "complete": 75.0,      # percentage, or null
+          "milestone": false,
+          "effort": "3.0d", "cost": null, "revenue": null,
+          "timeoff": [[t_start_unix, t_end_unix], ...]
+        },
+        "delayed": { ... }
+      },
+      "depends": [{ "id": "proj.other", "scenario": "plan" }, ...]
+    },
+
+    # Resource row
+    { "rowType": "resource",
+      "no": 1,                  # sequential resource counter
+      "id": "dev",
+      "name": "Developer",
+      "parent": null,
+      "level": 1,
+      "isLeaf": true,
+      "cols": { "effort": "10d", ... },   # non-chart column values
+      "loadData": {
+        "plan": {
+          "categories": ["busy", "free"],
+          "buckets": [[t_unix, busy_val, free_val], ...],
+          "timeoff": [[t_start_unix, t_end_unix], ...]
+        }
+      }
+    },
+
+    # Nested-resource row  (resource under a task scope)
+    { "rowType": "nested-resource",
+      "id": "dev", "name": "Developer",
+      "parent": null, "scopeId": "proj.task",
+      "level": 1, "isLeaf": true,
+      "loadData": {
+        "plan": {
+          "categories": ["assigned", "busy", "free"],
+          "buckets": [[t_unix, assigned, busy, free], ...],
+          "timeoff": [...]
+        }
+      }
+    },
+
+    # Nested-task row  (task under a resource scope)
+    { "rowType": "nested-task",
+      "id": "proj.task", "name": "Task",
+      "scopeId": "dev",
+      "level": 2, "isLeaf": true,
+      "loadData": {
+        "plan": {
+          "categories": ["busy"],
+          "buckets": [[t_unix, busy_val], ...],
+          "timeoff": [...]
+        }
+      }
+    }
+  ]
+}
 ```
 
 ---
