@@ -6245,7 +6245,6 @@ EOT
     })
   end
 
-
   def rule_taskScenarioAttributes
 
     pattern(%w( _account $ID ))

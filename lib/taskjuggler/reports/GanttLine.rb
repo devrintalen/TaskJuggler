@@ -135,7 +135,7 @@ class TaskJuggler
         named_indices = @ganttCategories.each_with_index
                                         .select { |cat, _i| cat }
                                         .map    { |_cat, i| i }
-        categories = named_indices.map { |i| @ganttCategories[i] }
+        categories = @ganttCategories.compact
 
         buckets = []
         @content.each do |stack|

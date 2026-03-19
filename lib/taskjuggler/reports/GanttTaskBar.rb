@@ -65,9 +65,10 @@ class TaskJuggler
       return nil unless @startDate && @endDate
       completion = 0.0
       if @query
-        @query.attributeId = 'complete'
-        @query.process
-        res = @query.result
+        q = @query.dup
+        q.attributeId = 'complete'
+        q.process
+        res = q.result
         completion = res ? res.to_f : 0.0
       end
       { 'type' => 'taskbar', 'start' => @startDate.to_i, 'end' => @endDate.to_i,

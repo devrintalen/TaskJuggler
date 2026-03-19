@@ -200,12 +200,8 @@ class TaskJuggler
     # is accessed separately by ReportTableLine via the column header special.
     def to_htmljs
       return nil if @hidden || @special
-      val = if @text.respond_to?(:functionHandler)
-              @text.setQuery(@query)
-              @text.to_s
-            else
-              @text.to_s
-            end
+      @text.setQuery(@query) if @text.respond_to?(:functionHandler)
+      val = @text.to_s
       val.empty? ? nil : val
     end
 

@@ -1283,6 +1283,16 @@ class TaskJuggler
       end
     end
 
+    # Return true when the enclosing report (or any parent textreport context)
+    # is rendered as :htmljs.  Used by TaskListRE and ResourceListRE to redirect
+    # their to_html calls when they are embedded inside a textreport.
+    def htmljs_format?
+      @report.get('formats').include?(:htmljs) ||
+        @report.project.reportContexts.any? { |ctx|
+          ctx.report.get('formats').include?(:htmljs)
+        }
+    end
+
     # Locate a data file using AppConfig.dataDirs.
     def htmljs_find_data_file(relative_path)
       dir_part  = File.dirname(relative_path)

@@ -116,11 +116,10 @@ class TaskJuggler
 
     # The project, accessed via any cell's query.
     def project
-      @cells.each do |c|
-        next unless c.respond_to?(:query)
-        return c.query.project if c.query&.project
-      end
-      nil
+      return @project_cache if instance_variable_defined?(:@project_cache)
+      @project_cache = @cells.lazy
+                             .select { |c| c.respond_to?(:query) && c.query&.project }
+                             .first&.query&.project
     end
 
     # A base query suitable for duplication, from the first non-special cell
@@ -131,28 +130,31 @@ class TaskJuggler
 
     # Return the GanttChart embedded in the 'chart' column header, or nil.
     def gantt_chart
-      @table.columns.each do |col|
-        return col.cell1.special if col.definition&.id == 'chart' && col.cell1&.special
-      end
-      nil
+      return @gantt_chart_cache if instance_variable_defined?(:@gantt_chart_cache)
+      @gantt_chart_cache = @table.columns.lazy
+                                         .select { |col| col.definition&.id == 'chart' && col.cell1&.special }
+                                         .first&.cell1&.special
     end
 
     # Return [chart_start, chart_end] from the GanttChart if present, otherwise
     # from the project's overall start/end.
     def chart_bounds
+      return @chart_bounds_cache if instance_variable_defined?(:@chart_bounds_cache)
       g = gantt_chart
-      return [g.start, g.end] if g
-      pr = project
-      [pr&.[]('start'), pr&.[]('end')]
+      @chart_bounds_cache = if g
+        [g.start, g.end]
+      else
+        pr = project
+        [pr&.[]('start'), pr&.[]('end')]
+      end
     end
 
     # Return the scenario index for this line (from the first available query).
     def scenario_idx
-      @cells.each do |c|
-        next unless c.respond_to?(:query)
-        return c.query.scenarioIdx if c.query
-      end
-      0
+      return @scenario_idx_cache if instance_variable_defined?(:@scenario_idx_cache)
+      @scenario_idx_cache = @cells.lazy
+                                  .select { |c| c.respond_to?(:query) && c.query }
+                                  .first&.query&.scenarioIdx || 0
     end
 
     # Return the scenario name string for index _idx_.

@@ -71,15 +71,6 @@ class TaskJuggler
       htmljs_format? ? to_htmljs : super
     end
 
-  private
-
-    def htmljs_format?
-      @report.get('formats').include?(:htmljs) ||
-        @report.project.reportContexts.any? { |ctx|
-          ctx.report.get('formats').include?(:htmljs)
-        }
-    end
-
   end
 
 end
