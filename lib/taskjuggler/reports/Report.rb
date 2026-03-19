@@ -18,8 +18,6 @@ require 'taskjuggler/PropertyTreeNode'
 require 'taskjuggler/reports/AccountListRE'
 require 'taskjuggler/reports/TextReport'
 require 'taskjuggler/reports/TaskListRE'
-require 'taskjuggler/reports/JSTaskReportRE'
-require 'taskjuggler/reports/JSResourceReportRE'
 require 'taskjuggler/reports/ResourceListRE'
 require 'taskjuggler/reports/TraceReport'
 require 'taskjuggler/reports/TagFile'
@@ -132,26 +130,13 @@ class TaskJuggler
       when :niku
         @content = NikuReport.new(self)
       when :resourcereport
-        use_js = get('formats').include?(:htmljs) ||
-                 @project.reportContexts.any? { |ctx|
-                   ctx.report.get('formats').include?(:htmljs)
-                 }
-        @content = use_js ? JSResourceReportRE.new(self) : ResourceListRE.new(self)
+        @content = ResourceListRE.new(self)
       when :tagfile
         @content = TagFile.new(self)
       when :textreport
         @content = TextReport.new(self)
       when :taskreport
-        # Use the interactive renderer if this report requests htmljs, OR if
-        # any ancestor report in the context stack requests htmljs — so that
-        # setting formats htmljs on an outer textreport is sufficient to render
-        # embedded taskreports interactively without needing formats on the
-        # embedded report (which has an empty filename and cannot write output).
-        use_js = get('formats').include?(:htmljs) ||
-                 @project.reportContexts.any? { |ctx|
-                   ctx.report.get('formats').include?(:htmljs)
-                 }
-        @content = use_js ? JSTaskReportRE.new(self) : TaskListRE.new(self)
+        @content = TaskListRE.new(self)
       when :tracereport
         @content = TraceReport.new(self)
       when :statusSheet
@@ -267,6 +252,76 @@ EOT
         else
           # Prepend the specified output directory unless the provided file
           # name is an absolute file name.
+          absoluteFileName(@name) + '.html'
+        end
+      begin
+        html.write(fileName)
+      rescue IOError, SystemCallError
+        error('write_html', "Cannot write to file #{fileName}.\n#{$!}",
+              sourceFileInfo)
+      end
+    end
+
+    # Generate an interactive HTML (htmljs) version of the report.
+    def generateHTMLJS
+      return nil unless @content
+
+      unless @content.respond_to?('to_htmljs')
+        warning('htmljs_not_supported',
+                "Interactive HTML format is not supported for report #{@id} " \
+                "of type #{@typeSpec}.")
+        return nil
+      end
+
+      html = HTMLDocument.new
+      head = html.generateHead(@project['name'] + " - #{get('title') || @name}",
+                               { 'description' => 'TaskJuggler Report',
+                                 'keywords' =>
+                                   'taskjuggler, project, management' },
+                               a('rawHtmlHead'))
+      if a('selfcontained')
+        auxSrcDir = AppConfig.dataDirs('data/css')[0]
+        cssFileName = (auxSrcDir ? auxSrcDir + '/tjreport.css' : '')
+        if auxSrcDir.nil? || !File.exist?(cssFileName)
+          dataDirError(cssFileName, AppConfig.dataSearchDirs('data/css'))
+        end
+        cssFile = IO.read(cssFileName)
+        if cssFile.empty?
+          error('css_file_error',
+                "Cannot read '#{cssFileName}'. Make sure the file is not " +
+                "empty and you have read access permission.", sourceFileInfo)
+        end
+        head << XMLElement.new('meta', 'http-equiv' => 'Content-Style-Type',
+                               'content' => 'text/css; charset=utf-8')
+        head << (style = XMLElement.new('style', 'type' => 'text/css'))
+        style << XMLBlob.new("\n" + cssFile)
+      else
+        head << XMLElement.new('link', 'rel' => 'stylesheet',
+                               'type' => 'text/css',
+                               'href' => "#{a('auxdir')}css/tjreport.css")
+      end
+      html.html <<
+        XMLComment.new("Dynamic Report ID: " +
+                       "#{@project.reportContexts.last.dynamicReportId}")
+      html.html << (body = XMLElement.new('body'))
+
+      body << (frame = XMLElement.new('div', 'class' => 'tj_page'))
+      frame << @content.to_htmljs
+
+      frame << (div = XMLElement.new('div', 'class' => 'copyright'))
+      div << XMLText.new(@project['copyright'] + " - ") if @project['copyright']
+      div << XMLText.new("Project: #{@project['name']} " +
+                        "Version: #{@project['version']} - " +
+                        "Created on #{TjTime.new.to_s("%Y-%m-%d %H:%M:%S")} " +
+                        "with ")
+      div << XMLNamedText.new("#{AppConfig.softwareName}", 'a',
+                             'href' => "#{AppConfig.contact}")
+      div << XMLText.new(" v#{AppConfig.version}")
+
+      fileName =
+        if a('interactive') || @name == '.'
+          '.'
+        else
           absoluteFileName(@name) + '.html'
         end
       begin

@@ -36,7 +36,7 @@ class TaskJuggler
     include HTMLGraphics
 
     attr_reader :start, :end, :now, :weekStartsMonday, :header, :width,
-                :scale, :scales, :table, :markdate
+                :scale, :scales, :table, :markdate, :lines
     attr_writer :viewWidth
 
     # Create the GanttChart object, but don't do much right now. We still need
@@ -199,6 +199,16 @@ class TaskJuggler
       end
 
       td
+    end
+
+    # Find and return the GanttLine for a given property/scope/scenario, or nil.
+    def line_for(property, scope_property, scenario_idx)
+      @lines.find do |line|
+        line.query.property.equal?(property) &&
+          (scope_property.nil? ? line.query.scopeProperty.nil? :
+                                 line.query.scopeProperty.equal?(scope_property)) &&
+          line.query.scenarioIdx == scenario_idx
+      end
     end
 
     # This is a noop function.

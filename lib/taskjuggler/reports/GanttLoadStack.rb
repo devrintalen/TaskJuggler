@@ -26,7 +26,8 @@ class TaskJuggler
     # is a reference to the GanttLine. _x_ is the left edge in chart coordinates
     # and _w_ is the stack width. _values_ are the values to be displayed and
     # _categories_ determines the color for each of the values.
-    def initialize(line, x, w, values, categories)
+    # _startDate_ and _endDate_ are optional TjTime objects used by to_htmljs.
+    def initialize(line, x, w, values, categories, startDate = nil, endDate = nil)
       @line = line
       @lineHeight = line.height
       @x = x
@@ -37,6 +38,9 @@ class TaskJuggler
         raise "Values and categories must have the same number of entries!"
       end
       @categories = categories
+      @startDate = startDate
+      @endDate = endDate
+      @rawValues = values.dup
       i = 0
       @categories.each do |cat|
         if cat.nil? && values[i] > 0
@@ -61,6 +65,18 @@ class TaskJuggler
           @yLevels << (@lineHeight - 4) * v / sum
         end
       end
+    end
+
+    # Return a JSON-serializable hash for interactive chart rendering.
+    # Returns nil if no date information is stored.
+    def to_htmljs
+      return nil unless @startDate && @endDate
+      {
+        'start'   => @startDate.to_i,
+        'end'     => @endDate.to_i,
+        'values'  => @rawValues,
+        'hasData' => !@yLevels.nil?
+      }
     end
 
     def addBlockedZones(router)

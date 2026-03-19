@@ -28,10 +28,12 @@ class TaskJuggler
     # is a reference to the Task to be displayed. _lineHeight_ is the height of
     # the line this milestone is shown in. _x_ and _y_ are the coordinates of
     # the center of the milestone in the GanttChart.
-    def initialize(lineHeight, x, y)
+    # _date_ is an optional TjTime used by to_htmljs.
+    def initialize(lineHeight, x, y, date = nil)
       @lineHeight = lineHeight
       @x = x
       @y = y
+      @date = date
     end
 
     # Return the point [ x, y ] where task start dependency lines should start
@@ -54,6 +56,12 @@ class TaskJuggler
     # Return the point [ x, y ] where task end dependency lines should end at.
     def endDepLineEnd
       [ @x + @@size, @y + @lineHeight / 2 ]
+    end
+
+    # Return a JSON-serializable hash for interactive chart rendering.
+    def to_htmljs
+      return nil unless @date
+      { 'type' => 'milestone', 'date' => @date.to_i }
     end
 
     def addBlockedZones(router)

@@ -66,6 +66,11 @@ class TaskJuggler
       @lines.length
     end
 
+    # Iterate over all registered lines.
+    def each_line(&block)
+      @lines.each(&block)
+    end
+
     # Return the minimum required width for the table. If we don't have a
     # mininum with, nil is returned.
     def minWidth

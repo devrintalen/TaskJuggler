@@ -57,6 +57,10 @@ class TaskJuggler
       # The x coordinates of the time-off zones. It's an Array of [ startX, endX
       # ] touples.
       @timeOffZones = []
+      # Date-based time-off zones for to_htmljs: Array of [ startUnix, endUnix ].
+      @timeOffDateZones = []
+      # Categories array for load-stack lines (nil for task-bar lines).
+      @ganttCategories = nil
 
       generate
     end
@@ -115,6 +119,38 @@ class TaskJuggler
       end
     end
 
+    # Return a JSON-serializable hash for interactive chart rendering.
+    # For task-bar lines: { 'type'=>'task', 'timeoff'=>[...], 'bar'=>{...} }
+    # For load-stack lines: { 'type'=>'resource', 'timeoff'=>[...],
+    #                         'categories'=>[...], 'buckets'=>[[unix,v,...]] }
+    def to_htmljs
+      if @ganttCategories.nil?
+        # Primary task line — single bar/milestone/container.
+        bar = @content.first&.to_htmljs
+        { 'type' => 'task', 'timeoff' => @timeOffDateZones, 'bar' => bar }
+      else
+        # Load-stack line (resource primary, nested-resource, nested-task).
+        # Filter out nil categories (they mean 'draw frame only' in HTML but
+        # are not rendered by the JS; just skip them from the buckets output).
+        named_indices = @ganttCategories.each_with_index
+                                        .select { |cat, _i| cat }
+                                        .map    { |_cat, i| i }
+        categories = named_indices.map { |i| @ganttCategories[i] }
+
+        buckets = []
+        @content.each do |stack|
+          data = stack.to_htmljs
+          next unless data
+          values = named_indices.map { |i| data['values'][i] }
+          next if values.all? { |v| v == 0 }
+          buckets << ([data['start']] + values)
+        end
+
+        { 'type' => 'resource', 'timeoff' => @timeOffDateZones,
+          'categories' => categories, 'buckets' => buckets }
+      end
+    end
+
     # Register the areas that dependency lines should not cross.
     def addBlockedZones(router)
       @content.each do |c|
@@ -158,6 +194,7 @@ class TaskJuggler
         x = nil
         startDate = endDate = nil
         categories = [ 'busy', nil ]
+        @ganttCategories = categories
 
         @chart.header.cellStartDates.each do |date|
           if x.nil?
@@ -200,7 +237,7 @@ class TaskJuggler
               values = [ workThisTask, overallWork - workThisTask ]
             end
             @content << GanttLoadStack.new(self, x + 1, w - 2, values,
-                                           categories)
+                                           categories, startDate, endDate)
 
             x = xNew
           end
@@ -217,14 +254,14 @@ class TaskJuggler
         @chart.addTask(property, self)
         @content <<
           if property['milestone', @query.scenarioIdx]
-            GanttMilestone.new(@height, xStart, @y)
+            GanttMilestone.new(@height, xStart, @y, taskStart)
           elsif property.container? &&
                 ((rollupExpr = @query.project.reportContexts.
                               last.report.get('rollupTask')).nil? ||
                  !rollupExpr.eval(@query))
-            GanttContainer.new(@height, xStart, xEnd, @y)
+            GanttContainer.new(@height, xStart, xEnd, @y, taskStart, taskEnd)
           else
-            GanttTaskBar.new(@query, @height, xStart, xEnd, @y)
+            GanttTaskBar.new(@query, @height, xStart, xEnd, @y, taskStart, taskEnd)
           end
 
         # Make sure the legend includes the Gantt symbols.
@@ -256,6 +293,7 @@ class TaskJuggler
       # work.
       if scopeProperty
         categories = [ 'assigned', 'busy', 'free' ]
+        @ganttCategories = categories
 
         taskStart = scopeProperty['start', @query.scenarioIdx] ||
                     project['start']
@@ -272,6 +310,7 @@ class TaskJuggler
         end
       else
         categories = [ 'busy', 'free' ]
+        @ganttCategories = categories
         if @chart.table
           @chart.table.legend.addGanttItem('Resource assigned to task(s)',
                                            'busy')
@@ -329,7 +368,8 @@ class TaskJuggler
 
         x = @chart.dateToX(startDate)
         w = @chart.dateToX(endDate) - x + 1
-        @content << GanttLoadStack.new(self, x + 1, w - 2, values, categories)
+        @content << GanttLoadStack.new(self, x + 1, w - 2, values, categories,
+                                       startDate, endDate)
       end
 
     end
@@ -343,12 +383,14 @@ class TaskJuggler
       return if (minTimeOff = @chart.scale['minTimeOff']) <= 0
 
       # Get the time-off intervals.
-      @timeOffZones = @query.property.collectTimeOffIntervals(
-                        @query.scenarioIdx, iv, minTimeOff)
+      raw_zones = @query.property.collectTimeOffIntervals(
+                    @query.scenarioIdx, iv, minTimeOff)
+      # Store date-based zones for to_htmljs before pixel conversion.
+      @timeOffDateZones = raw_zones.map { |zone| [zone.start.to_i, zone.end.to_i] }
       # Convert the start/end dates to X coordinates of the chart. When
       # finished, the zones in @timeOffZones are [ startX, endX ] touples.
       zones = []
-      @timeOffZones.each do |zone|
+      raw_zones.each do |zone|
         zones << [ s = @chart.dateToX(zone.start),
                    @chart.dateToX(zone.end) -  s ]
       end

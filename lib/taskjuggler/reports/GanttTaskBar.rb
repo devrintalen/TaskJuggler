@@ -27,12 +27,15 @@ class TaskJuggler
     # Create a GanttContainer object based on the following information: _line_
     # is a reference to the GanttLine. _xStart_ is the left edge of the task in
     # chart coordinates. _xEnd_ is the right edge.
-    def initialize(query, lineHeight, xStart, xEnd, y)
+    # _startDate_ and _endDate_ are optional TjTime objects used by to_htmljs.
+    def initialize(query, lineHeight, xStart, xEnd, y, startDate = nil, endDate = nil)
       @query = query
       @lineHeight = lineHeight
       @start = xStart
       @end = xEnd
       @y = y
+      @startDate = startDate
+      @endDate = endDate
     end
 
     # Return the point [ x, y ] where task start dependency lines should start
@@ -55,6 +58,20 @@ class TaskJuggler
     # Return the point [ x, y ] where task end dependency lines should end at.
     def endDepLineEnd
       [ @end - 1, @y + @lineHeight / 2 ]
+    end
+
+    # Return a JSON-serializable hash for interactive chart rendering.
+    def to_htmljs
+      return nil unless @startDate && @endDate
+      completion = 0.0
+      if @query
+        @query.attributeId = 'complete'
+        @query.process
+        res = @query.result
+        completion = res ? res.to_f : 0.0
+      end
+      { 'type' => 'taskbar', 'start' => @startDate.to_i, 'end' => @endDate.to_i,
+        'complete' => completion }
     end
 
     def addBlockedZones(router)
