@@ -71,37 +71,51 @@
   if (!container) { return; }
   container.innerHTML = '';
 
-  /* ── Floating tooltip ── */
-  var tooltipDiv = document.createElement('div');
-  tooltipDiv.style.cssText =
-    'position:fixed;z-index:10000;pointer-events:none;display:none;' +
-    'background:#fff;border:1px solid #aaa;padding:6px 10px;' +
-    'max-width:450px;font-size:11px;font-family:sans-serif;' +
-    'box-shadow:2px 2px 6px rgba(0,0,0,0.25);border-radius:3px;' +
-    'line-height:1.4;';
-  document.body.appendChild(tooltipDiv);
+  /* ── Floating tooltip ── (shared across all Gantt charts on the page) */
+  var tooltipDiv = document.getElementById('tj-gantt-tooltip');
+  if (!tooltipDiv) {
+    tooltipDiv = document.createElement('div');
+    tooltipDiv.id = 'tj-gantt-tooltip';
+    tooltipDiv.style.cssText =
+      'position:fixed;z-index:10000;pointer-events:none;display:none;' +
+      'background:#fff;border:1px solid #aaa;padding:6px 10px;' +
+      'max-width:450px;font-size:11px;font-family:sans-serif;' +
+      'box-shadow:2px 2px 6px rgba(0,0,0,0.25);border-radius:3px;' +
+      'line-height:1.4;';
+    document.body.appendChild(tooltipDiv);
+  }
+  /* Cached tooltip dimensions — read once per show, not on every mousemove. */
+  var _ttipW = 0, _ttipH = 0;
 
   function showTooltip(html, e) {
     if (!html) { return; }
     tooltipDiv.innerHTML = html;
     tooltipDiv.style.display = 'block';
+    _ttipW = tooltipDiv.offsetWidth;
+    _ttipH = tooltipDiv.offsetHeight;
     moveTooltip(e);
   }
 
   function moveTooltip(e) {
     var x = e.clientX + 16;
     var y = e.clientY + 16;
-    /* Keep within viewport */
-    var tw = tooltipDiv.offsetWidth;
-    var th = tooltipDiv.offsetHeight;
-    if (x + tw > window.innerWidth  - 8) { x = e.clientX - tw - 8; }
-    if (y + th > window.innerHeight - 8) { y = e.clientY - th - 8; }
+    /* Keep within viewport using dimensions cached in showTooltip */
+    if (x + _ttipW > window.innerWidth  - 8) { x = e.clientX - _ttipW - 8; }
+    if (y + _ttipH > window.innerHeight - 8) { y = e.clientY - _ttipH - 8; }
     tooltipDiv.style.left = x + 'px';
     tooltipDiv.style.top  = y + 'px';
   }
 
   function hideTooltip() {
     tooltipDiv.style.display = 'none';
+  }
+
+  function attachTooltip(el, html) {
+    if (!html) { return; }
+    el.style.cursor = 'help';
+    el.addEventListener('mouseenter', function (e) { showTooltip(html, e); });
+    el.addEventListener('mousemove',  function (e) { moveTooltip(e); });
+    el.addEventListener('mouseleave', hideTooltip);
   }
 
   var rows     = data.rows;
@@ -717,26 +731,13 @@
             renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
           }
 
-          /* Attach tooltip if defined for this row */
-          if (row.tooltip) {
-            var ttipHtml = row.tooltip;
-            g.style.cursor = 'help';
-            g.addEventListener('mouseenter', function (e) { showTooltip(ttipHtml, e); });
-            g.addEventListener('mousemove',  function (e) { moveTooltip(e); });
-            g.addEventListener('mouseleave', hideTooltip);
-          }
+          attachTooltip(g, row.tooltip);
         });
       } else {
         /* Load stack row — render proportional bars for primary scenario */
         var lg = makeG('tj-loadstack', gBars);
         renderLoadStack(row, y0, xScale, w, lod, lg);
-        if (row.tooltip) {
-          var lttipHtml = row.tooltip;
-          lg.style.cursor = 'help';
-          lg.addEventListener('mouseenter', function (e) { showTooltip(lttipHtml, e); });
-          lg.addEventListener('mousemove',  function (e) { moveTooltip(e); });
-          lg.addEventListener('mouseleave', hideTooltip);
-        }
+        attachTooltip(lg, row.tooltip);
       }
     });
   }
