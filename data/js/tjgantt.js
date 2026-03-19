@@ -513,7 +513,7 @@
                large: d3.utcDay.every(1),
                largeFmt: tzFmtParts({ weekday: 'short', day: 'numeric', month: 'short' },
                                     ['weekday', 'day', 'month']),
-               small: d3.utcHour.every(6),
+               small: d3.utcHour.every(1),
                smallFmt: tzFmt({ hour: '2-digit', minute: '2-digit', hour12: false }) };
     }
   }
