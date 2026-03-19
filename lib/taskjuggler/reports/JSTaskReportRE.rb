@@ -121,6 +121,7 @@ class TaskJuggler
       html = []
 
       html << rt_to_html('header')
+      html << generateHtmlTableFrame
 
       # ── Inline D3.js ──────────────────────────────────────────────────────
       d3_src = find_data_file('data/js/d3.min.js')
@@ -163,6 +164,13 @@ class TaskJuggler
       legend = ReportTableLegend.new
       legend.showGanttItems = true
       legend.addGanttItem('Off-duty period', 'offduty')
+      # Add resource allocation legend items when resource rows are present,
+      # matching the items GanttLine#generateResource adds in the HTML report.
+      if rows_json.any? { |r| r['rowType'] == 'nested-resource' }
+        legend.addGanttItem('Resource assigned to this task', 'assigned')
+        legend.addGanttItem('Resource assigned to task(s)', 'busy')
+        legend.addGanttItem('Resource available', 'free')
+      end
       legend_el = legend.to_html
       legend_el['style'] = 'margin:0;' if legend_el
       footer_div << legend_el

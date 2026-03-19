@@ -22,36 +22,39 @@
 
   /* ── Colors from tjreport.css ── */
   var C = {
-    taskbarFrame : '#09090a',
-    taskbar      : '#2f57ea',
-    progressbar  : '#36363f',
-    container    : '#09090a',
-    milestone    : '#09090a',
-    depline      : '#000000',
-    nowline      : '#EE0000',
-    offduty      : '#bdbdaa',
-    rowEven      : '#ebf2ff',
-    rowOdd       : '#d9dfeb',
-    headerBg     : '#7a7a7a',
-    headerFg     : '#ffffff',
-    headerBorder : '#9a9a9a',
-    gridLine     : 'rgba(0,0,0,0.15)',
-    /* Load stack colours */
-    loadBusy     : '#2f57ea',   /* matches taskbar */
-    loadAssigned : '#1a3a9e',   /* darker blue */
-    loadFree     : '#ebf2ff'    /* near-transparent (matches rowEven) */
+    taskbarFrame   : '#09090a',
+    taskbar        : '#2f57ea',
+    progressbar    : '#36363f',
+    container      : '#09090a',
+    milestone      : '#09090a',
+    depline        : '#000000',
+    nowline        : '#EE0000',
+    offduty        : '#bdbdaa',
+    rowEven        : '#ebf2ff',   /* .taskcell1 */
+    rowOdd         : '#d9dfeb',   /* .taskcell2 */
+    resourceRowEven: '#fff2eb',   /* .resourcecell1 */
+    resourceRowOdd : '#ebdfd9',   /* .resourcecell2 */
+    headerBg       : '#7a7a7a',
+    headerFg       : '#ffffff',
+    headerBorder   : '#9a9a9a',
+    gridLine       : 'rgba(0,0,0,0.15)',
+    /* Load stack colours — match .loadstackframe / .assigned / .busy / .free */
+    loadstackframe : '#452a2a',
+    loadAssigned   : '#ff3b3b',   /* .assigned */
+    loadBusy       : '#ff9b9b',   /* .busy */
+    loadFree       : '#a5ffb5'    /* .free */
   };
 
   /* Category name → fill colour */
   var loadCatColor = {
-    busy    : C.loadBusy,
     assigned: C.loadAssigned,
+    busy    : C.loadBusy,
     free    : C.loadFree
   };
 
   /* ── Layout ── */
-  var ROW_H    = 20;   // pixels per visual row
-  var HDR_H    = 40;   // two-row header height (20px each)
+  var ROW_H = 20;   // pixels per task or resource row (matches Ruby ReportTableLine)
+  var HDR_H = 40;   // two-row header height (20px each)
   var wdayFmt = null;  // initialised after projectTz is known (below)
 
   function fmtDate(s) {
@@ -115,6 +118,21 @@
   var nowDate      = project.now   ? projectMidnight(project.now)   : new Date();
 
   /* ── Row height helpers ── */
+  /* Returns whether this row is a resource row (not a primary task row). */
+  function isResourceRow(row) {
+    var rt = row.rowType;
+    return rt === 'nested-resource' || rt === 'nested-task' || rt === 'resource';
+  }
+
+  /* Background colour for a row, distinguishing task rows (blue) from resource
+   * rows (warm peach) to match .taskcell1/2 and .resourcecell1/2 in CSS. */
+  function rowBgColor(row, i) {
+    if (isResourceRow(row)) {
+      return (i % 2 === 0) ? C.resourceRowEven : C.resourceRowOdd;
+    }
+    return (i % 2 === 0) ? C.rowEven : C.rowOdd;
+  }
+
   function rowVisualHeight(row) {
     return ROW_H * ((row.rowSpan || 1));
   }
@@ -181,7 +199,7 @@
     var rowType = row.rowType || 'task';
     var isTask  = rowType === 'task';
     var sc      = isTask ? ((row.scenarios || {})[sc0] || {}) : {};
-    var bg      = (i % 2 === 0) ? C.rowEven : C.rowOdd;
+    var bg      = rowBgColor(row, i);
 
     /* First TR for this logical row */
     var tr = document.createElement('tr');
@@ -501,7 +519,7 @@
       var h = rowVisualHeight(row);
       svgEl('rect', gStripes, {
         x: 0, y: y, width: w, height: h,
-        fill: (i % 2 === 0) ? C.rowEven : C.rowOdd
+        fill: rowBgColor(row, i)
       });
       svgEl('line', gStripes, {
         x1: 0, y1: y + h - 0.5, x2: w, y2: y + h - 0.5,
@@ -640,16 +658,23 @@
     });
   }
 
-  /* Render proportional load-stack bars (top-down) for a non-task row.
-   * Each daily bucket becomes a column of stacked coloured rectangles whose
-   * heights are proportional to busy/assigned/free work values. */
+  /* Render proportional load-stack bars for a non-task row, matching the
+   * Ruby GanttLoadStack.to_html rendering approach:
+   *   1. Draw a dark frame rectangle (loadstackframe) for the whole column.
+   *   2. Inside the frame (1px margins), draw category bars in reverse order
+   *      (last category → first), so that for ['assigned','busy','free'] the
+   *      order from top is: free (green), busy (pink), assigned (red).
+   * Each daily bucket maps to one column of stacked rectangles. */
   function renderLoadStack(row, yTop, xScale, chartWidth) {
     var scId = (project.scenarios || [sc0])[0] || sc0;
     var ld   = row.loadData && row.loadData[scId];
     if (!ld || !ld.buckets || !ld.buckets.length) { return; }
 
     var categories = ld.categories || ['busy', 'free'];
-    var stackH     = ROW_H - 2;   /* leave 1px margin top/bottom */
+    /* 1px margin top and bottom inside the row (matching Ruby y=1 / height-2) */
+    var frameH = rowVisualHeight(row) - 2;
+    /* Inner bar area: 1px inside the frame on all sides */
+    var innerH = frameH - 2;
 
     ld.buckets.forEach(function (bucket) {
       var x0 = xScale(new Date(bucket[0] * 1000));
@@ -661,19 +686,28 @@
       var vals  = bucket.slice(1);
       var total = 0;
       vals.forEach(function (v) { total += Math.max(0, v || 0); });
+
+      /* Always draw the frame, even when total == 0 (matches Ruby drawFrame). */
+      svgEl('rect', gBars, {
+        x: x0, y: yTop + 1, width: bw, height: frameH,
+        fill: C.loadstackframe
+      });
+
       if (total <= 0) { return; }
 
+      /* Draw category bars in reverse (last index first = free→busy→assigned
+       * from top), accumulating y downward. Matches Ruby's downto(0) loop. */
       var yUsed = 0;
-      vals.forEach(function (v, ci) {
-        if (ci >= categories.length) { return; }
-        var h = Math.max(0, v || 0) / total * stackH;
-        if (h < 0.5) { return; }
+      for (var ci = categories.length - 1; ci >= 0; ci--) {
+        var h = Math.max(0, vals[ci] || 0) / total * innerH;
+        if (h < 0.5) { yUsed += h; continue; }
         svgEl('rect', gBars, {
-          x: x0, y: yTop + 1 + yUsed, width: bw, height: h,
+          x: x0 + 1, y: yTop + 2 + yUsed,
+          width: Math.max(0, bw - 2), height: h,
           fill: loadCatColor[categories[ci]] || '#888'
         });
         yUsed += h;
-      });
+      }
     });
   }
 
