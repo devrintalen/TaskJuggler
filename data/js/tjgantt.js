@@ -151,6 +151,7 @@
 
   var yOffsets = buildYOffsets();
   var chartH   = yOffsets[yOffsets.length - 1];
+  var _stripesW = -1;   // cached width for stripe invalidation
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
@@ -463,11 +464,43 @@
     });
   }
 
-  /* Adaptive tick configuration based on pixels-per-day. */
-  function tickConfig(xScale) {
+  function computePpd(xScale) {
     var domainMs = xScale.domain()[1] - xScale.domain()[0];
     var rangeW   = xScale.range()[1]  - xScale.range()[0];
-    var ppd      = rangeW / (domainMs / 86400000);
+    return rangeW / (domainMs / 86400000);
+  }
+
+  /*
+   * Returns an LOD descriptor. Fields:
+   *   ppd            — pixels per day
+   *   bucketDays     — merge this many daily load-stack buckets into one rect
+   *   mergeTimeoffPx — coalesce adjacent timeoff zones if pixel gap < this
+   *   showArrows     — render dependency arrows at all
+   *
+   * Thresholds match tickConfig():
+   *   level 0: ppd < 0.2  (year scale)
+   *   level 1: ppd < 2    (quarter scale)
+   *   level 2: ppd < 15   (month scale)
+   *   level 3: ppd < 60   (week scale)
+   *   level 4: ppd >= 60  (day scale — full detail)
+   */
+  function computeLod(xScale) {
+    var ppd = computePpd(xScale);
+    var bucketDays, mergeTimeoffPx, showArrows;
+
+    if      (ppd < 0.2) { bucketDays = 365; mergeTimeoffPx = 4; showArrows = false; }
+    else if (ppd < 2)   { bucketDays = 30;  mergeTimeoffPx = 4; showArrows = false; }
+    else if (ppd < 15)  { bucketDays = 7;   mergeTimeoffPx = 2; showArrows = true;  }
+    else if (ppd < 60)  { bucketDays = 1;   mergeTimeoffPx = 1; showArrows = true;  }
+    else                { bucketDays = 1;   mergeTimeoffPx = 0; showArrows = true;  }
+
+    return { ppd: ppd, bucketDays: bucketDays,
+             mergeTimeoffPx: mergeTimeoffPx, showArrows: showArrows };
+  }
+
+  /* Adaptive tick configuration based on pixels-per-day. */
+  function tickConfig(xScale) {
+    var ppd = computePpd(xScale);
 
     if (ppd < 0.2) {
       return { large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
@@ -547,35 +580,50 @@
   }
 
   /* ── Row stripes ── */
-  function renderStripes(xScale) {
-    clearG(gStripes);
+  function renderStripes(xScale, lod) {
     var w = getChartWidth();
+    if (w === _stripesW) { return; }
+    _stripesW = w;
+    clearG(gStripes);
     rows.forEach(function (row, i) {
       var y = yOffsets[i];
       var h = rowVisualHeight(row);
-      svgEl('rect', gStripes, {
-        x: 0, y: y, width: w, height: h,
-        fill: rowBgColor(row, i)
-      });
-      svgEl('line', gStripes, {
-        x1: 0, y1: y + h - 0.5, x2: w, y2: y + h - 0.5,
-        stroke: C.headerBorder, 'stroke-width': 1
-      });
+      svgEl('rect', gStripes, { x: 0, y: y, width: w, height: h, fill: rowBgColor(row, i) });
+      svgEl('line', gStripes, { x1: 0, y1: y + h - 0.5, x2: w, y2: y + h - 0.5,
+                                 stroke: C.headerBorder, 'stroke-width': 1 });
     });
   }
 
+  /* Coalesce adjacent timeoff zones whose pixel gap is < minGapPx.
+   * Input zones must be sorted chronologically (as emitted by Ruby). */
+  function mergeTimeoffZones(zones, xScale, minGapPx) {
+    if (!zones.length || minGapPx <= 0) { return zones; }
+    var merged = [];
+    var cur    = [zones[0][0], zones[0][1]];
+    for (var zi = 1; zi < zones.length; zi++) {
+      var next  = zones[zi];
+      var gapPx = xScale(new Date(next[0] * 1000)) - xScale(new Date(cur[1] * 1000));
+      if (gapPx < minGapPx) { cur[1] = next[1]; }
+      else { merged.push(cur); cur = [next[0], next[1]]; }
+    }
+    merged.push(cur);
+    return merged;
+  }
+
   /* ── Off-duty zones (weekends / holidays per task row) ── */
-  function renderTimeOff(xScale) {
+  function renderTimeOff(xScale, lod) {
     clearG(gTimeOff);
+    var w = getChartWidth();
     rows.forEach(function (row, i) {
       if ((row.rowType || 'task') !== 'task') { return; }
-      var y    = yOffsets[i];
-      var h    = rowVisualHeight(row);
-      var zones = ((row.scenarios || {})[sc0] || {}).timeoff || [];
-      zones.forEach(function (zone) {
+      var y      = yOffsets[i];
+      var h      = rowVisualHeight(row);
+      var zones  = ((row.scenarios || {})[sc0] || {}).timeoff || [];
+      var merged = mergeTimeoffZones(zones, xScale, lod.mergeTimeoffPx);
+      merged.forEach(function (zone) {
         var x0 = xScale(new Date(zone[0] * 1000));
         var x1 = xScale(new Date(zone[1] * 1000));
-        if (x1 <= 0 || x0 >= getChartWidth()) { return; }
+        if (x1 <= 0 || x0 >= w || x1 - x0 < 0.5) { return; }
         svgEl('rect', gTimeOff, {
           x: x0, y: y, width: x1 - x0, height: h,
           fill: C.offduty
@@ -607,7 +655,7 @@
   }
 
   /* ── Task bars + load stacks ── */
-  function renderBars(xScale) {
+  function renderBars(xScale, lod) {
     clearG(gBars);
     var w = getChartWidth();
 
@@ -625,7 +673,15 @@
           if (!sc.start || !sc.end) { return; }
           var tStart = projectMidnight(sc.start);
           var tEnd   = projectMidnight(sc.end);
-          var g      = makeG('tj-task', gBars);
+
+          /* Viewport cull */
+          var bx0 = xScale(tStart);
+          var bx1 = xScale(tEnd);
+          if (bx1 < 0 || bx0 > w) { return; }
+          /* Width cull (skip milestones — they are single-point markers) */
+          if (!sc.milestone && (bx1 - bx0) < 1) { return; }
+
+          var g = makeG('tj-task', gBars);
           if (sc.milestone) {
             renderMilestone(g, xScale, tStart, yCenter);
           } else if (row._isContainer && s === 0) {
@@ -639,7 +695,7 @@
         });
       } else {
         /* Load stack row — render proportional bars for primary scenario */
-        renderLoadStack(row, y0, xScale, w);
+        renderLoadStack(row, y0, xScale, w, lod);
       }
     });
   }
@@ -694,6 +750,30 @@
     });
   }
 
+  /* Merge consecutive groups of n per-day buckets into super-buckets.
+   * Values are summed; proportional ratios are preserved.
+   * The merged entry carries a _days field for correct pixel-width computation. */
+  function mergeBuckets(buckets, n) {
+    if (n <= 1 || !buckets.length) { return buckets; }
+    var nCats  = buckets[0].length - 1;
+    var merged = [];
+    var i      = 0;
+    while (i < buckets.length) {
+      var groupStart = buckets[i][0];
+      var sums       = new Array(nCats).fill(0);
+      var count      = 0;
+      while (count < n && i < buckets.length) {
+        var b = buckets[i];
+        for (var ci = 0; ci < nCats; ci++) { sums[ci] += Math.max(0, b[ci + 1] || 0); }
+        i++; count++;
+      }
+      var entry = [groupStart].concat(sums);
+      entry._days = count;
+      merged.push(entry);
+    }
+    return merged;
+  }
+
   /* Render proportional load-stack bars for a non-task row, matching the
    * Ruby GanttLoadStack.to_html rendering approach:
    *   1. Draw a dark frame rectangle (loadstackframe) for the whole column.
@@ -701,7 +781,7 @@
    *      (last category → first), so that for ['assigned','busy','free'] the
    *      order from top is: free (green), busy (pink), assigned (red).
    * Each daily bucket maps to one column of stacked rectangles. */
-  function renderLoadStack(row, yTop, xScale, chartWidth) {
+  function renderLoadStack(row, yTop, xScale, chartWidth, lod) {
     var scId = (project.scenarios || [sc0])[0] || sc0;
     var ld   = row.loadData && row.loadData[scId];
     if (!ld || !ld.buckets || !ld.buckets.length) { return; }
@@ -719,15 +799,16 @@
     var visStartS = xScale.invert(0).getTime() / 1000;
     var visEndS   = xScale.invert(chartWidth).getTime() / 1000;
 
-    var buckets = ld.buckets;
+    var buckets = mergeBuckets(ld.buckets, lod.bucketDays);
     for (var bi = 0; bi < buckets.length; bi++) {
-      var bucket   = buckets[bi];
-      var bucketS  = bucket[0];          /* Unix seconds at day start */
-      if (bucketS + 86400 <= visStartS) { continue; }   /* entirely left of view */
-      if (bucketS          >= visEndS)  { break; }       /* entirely right of view */
+      var bucket    = buckets[bi];
+      var bucketS   = bucket[0];          /* Unix seconds at bucket start */
+      var durationS = (bucket._days || 1) * 86400;
+      if (bucketS + durationS <= visStartS) { continue; }   /* entirely left of view */
+      if (bucketS             >= visEndS)   { break; }       /* entirely right of view */
 
       var x0 = xScale(new Date(bucketS * 1000));
-      var x1 = xScale(new Date((bucketS + 86400) * 1000));
+      var x1 = xScale(new Date((bucketS + durationS) * 1000));
       var bw = x1 - x0;
       if (bw < 0.5) { continue; }
 
@@ -823,18 +904,20 @@
 
   /* ── Main render ── */
   function render(xScale) {
+    var lod = computeLod(xScale);
     renderHeader(xScale);
-    renderStripes(xScale);
-    renderTimeOff(xScale);
+    renderStripes(xScale, lod);
+    renderTimeOff(xScale, lod);
     renderGrid(xScale);
     renderNowLine(xScale);
-    renderBars(xScale);
-    renderArrows(xScale);
+    renderBars(xScale, lod);
+    if (lod.showArrows) { renderArrows(xScale); } else { clearG(gArrows); }
   }
 
   render(currentXScale);
 
   window.addEventListener('resize', function () {
+    _stripesW = -1;   // force stripe redraw on new width
     baseXScale.range([0, getChartWidth()]);
     var t = d3.zoomTransform(svg);
     currentXScale = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
