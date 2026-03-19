@@ -348,13 +348,25 @@
 
   var currentXScale = baseXScale.copy();
 
+  /* Throttle renders to one per animation frame so that rapid zoom/wheel
+   * events (which D3 fires synchronously for every pixel of movement) do not
+   * trigger a full SVG rebuild on each event. */
+  var _rafId = null;
+  function scheduleRender() {
+    if (_rafId) { return; }
+    _rafId = requestAnimationFrame(function () {
+      _rafId = null;
+      render(currentXScale);
+    });
+  }
+
   var zoom = d3.zoom()
     .scaleExtent([0.02, 500])
     .on('zoom', function (event) {
       var t  = event.transform;
       var xt = d3.zoomIdentity.translate(t.x, 0).scale(t.k);
       currentXScale = xt.rescaleX(baseXScale);
-      render(currentXScale);
+      scheduleRender();
     });
 
   d3.select(svg).call(zoom);
@@ -676,12 +688,24 @@
     /* Inner bar area: 1px inside the frame on all sides */
     var innerH = frameH - 2;
 
-    ld.buckets.forEach(function (bucket) {
-      var x0 = xScale(new Date(bucket[0] * 1000));
-      var x1 = xScale(new Date((bucket[0] + 86400) * 1000));
-      if (x1 <= 0 || x0 >= chartWidth) { return; }
+    /* Pre-compute visible time window in Unix seconds so off-screen buckets
+     * can be culled with a plain numeric comparison — no Date allocation or
+     * xScale call needed.  Buckets are chronologically sorted, so we can
+     * break out of the loop once we are past the right edge. */
+    var visStartS = xScale.invert(0).getTime() / 1000;
+    var visEndS   = xScale.invert(chartWidth).getTime() / 1000;
+
+    var buckets = ld.buckets;
+    for (var bi = 0; bi < buckets.length; bi++) {
+      var bucket   = buckets[bi];
+      var bucketS  = bucket[0];          /* Unix seconds at day start */
+      if (bucketS + 86400 <= visStartS) { continue; }   /* entirely left of view */
+      if (bucketS          >= visEndS)  { break; }       /* entirely right of view */
+
+      var x0 = xScale(new Date(bucketS * 1000));
+      var x1 = xScale(new Date((bucketS + 86400) * 1000));
       var bw = x1 - x0;
-      if (bw < 0.5) { return; }
+      if (bw < 0.5) { continue; }
 
       var vals  = bucket.slice(1);
       var total = 0;
@@ -693,7 +717,7 @@
         fill: C.loadstackframe
       });
 
-      if (total <= 0) { return; }
+      if (total <= 0) { continue; }
 
       /* Draw category bars in reverse (last index first = free→busy→assigned
        * from top), accumulating y downward. Matches Ruby's downto(0) loop. */
@@ -708,7 +732,7 @@
         });
         yUsed += h;
       }
-    });
+    }
   }
 
   /* ── Dependency arrows ── */
@@ -790,7 +814,7 @@
     baseXScale.range([0, getChartWidth()]);
     var t = d3.zoomTransform(svg);
     currentXScale = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
-    render(currentXScale);
+    scheduleRender();
   });
 
 })();
