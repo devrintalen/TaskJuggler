@@ -74,25 +74,6 @@ class TaskJuggler
       generateResourceList(resourceList, taskList, nil)
     end
 
-    # When rendering in htmljs context, produce the interactive chart instead
-    # of the standard HTML table.
-    def to_html
-      if htmljs_format?
-        to_htmljs
-      else
-        super
-      end
-    end
-
-  private
-
-    def htmljs_format?
-      @report.get('formats').include?(:htmljs) ||
-        @report.project.reportContexts.any? { |ctx|
-          ctx.report.get('formats').include?(:htmljs)
-        }
-    end
-
   end
 
 end

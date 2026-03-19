@@ -89,7 +89,7 @@ class TaskJuggler
           generateHTML
           copyAuxiliaryFiles
         when :htmljs
-          generateHTML
+          generateHTML(:htmljs)
           copyAuxiliaryFiles
         when :csv
           generateCSV
@@ -170,8 +170,9 @@ class TaskJuggler
       get(attribute)
     end
 
-    # Generate an HTML version of the report.
-    def generateHTML
+    # Generate an HTML version of the report. _format_ is :html (default) or
+    # :htmljs; the latter calls @content.to_htmljs for the body content.
+    def generateHTML(format = :html)
       return nil unless @content
 
       unless @content.respond_to?('to_html')
@@ -232,7 +233,7 @@ EOT
       # Make sure we have some margins around the report.
       body << (frame = XMLElement.new('div', 'class' => 'tj_page'))
 
-      frame << @content.to_html
+      frame << (format == :htmljs ? @content.to_htmljs : @content.to_html)
 
       # The footer with some administrative information.
       frame << (div = XMLElement.new('div', 'class' => 'copyright'))
