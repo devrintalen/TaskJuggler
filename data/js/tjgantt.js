@@ -151,8 +151,6 @@
 
   var yOffsets = buildYOffsets();
   var chartH   = yOffsets[yOffsets.length - 1];
-  var svgH     = chartH + HDR_H;
-
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
@@ -272,19 +270,39 @@
     }
   }
 
-  /* ── Right panel ── */
-  var rightPanel = document.createElement('div');
-  rightPanel.style.cssText = 'flex:1;min-width:0;overflow-y:scroll;overflow-x:hidden;position:relative;';
-  wrapper.appendChild(rightPanel);
+  /* ── Right column: fixed header + scrollable body ── */
+  var rightColumn = document.createElement('div');
+  rightColumn.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;';
+  wrapper.appendChild(rightColumn);
+
+  /* Fixed (non-scrolling) header strip */
+  var rightHeader = document.createElement('div');
+  rightHeader.style.cssText =
+    'flex-shrink:0;overflow:hidden;height:' + HDR_H + 'px;' +
+    'border-bottom:1px solid #7a7a7a;';
+  rightColumn.appendChild(rightHeader);
 
   /* ── SVG ── */
   var svgNS = 'http://www.w3.org/2000/svg';
 
+  /* Header SVG — lives in the fixed strip and never scrolls */
+  var hdrSvg = document.createElementNS(svgNS, 'svg');
+  hdrSvg.setAttribute('width', '100%');
+  hdrSvg.setAttribute('height', HDR_H);
+  hdrSvg.style.cssText = 'display:block;overflow:hidden;';
+  rightHeader.appendChild(hdrSvg);
+
+  /* Scrollable body area */
+  var rightBody = document.createElement('div');
+  rightBody.style.cssText = 'flex:1;overflow-y:scroll;overflow-x:hidden;';
+  rightColumn.appendChild(rightBody);
+
+  /* Body SVG — scrolls with rightBody */
   var svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('width', '100%');
-  svg.setAttribute('height', svgH);
+  svg.setAttribute('height', chartH);
   svg.style.cssText = 'display:block;overflow:hidden;';
-  rightPanel.appendChild(svg);
+  rightBody.appendChild(svg);
 
   /* defs — arrowhead marker */
   var defs = document.createElementNS(svgNS, 'defs');
@@ -310,14 +328,14 @@
     return g;
   }
 
-  /* Header: background group FIRST so it renders beneath the tick labels */
-  var gHeader   = makeG('tj-header');
+  /* Header groups live in hdrSvg so they never scroll */
+  var gHeader   = makeG('tj-header',    hdrSvg);
   var gHeaderBg = makeG('tj-header-bg',    gHeader);
   var gHeaderLg = makeG('tj-header-large', gHeader);
   var gHeaderSm = makeG('tj-header-small', gHeader);
 
+  /* Body groups live in svg (the scrollable body SVG); no Y translate needed */
   var gBody    = makeG('tj-body');
-  gBody.setAttribute('transform', 'translate(0,' + HDR_H + ')');
   var gStripes = makeG('tj-stripes', gBody);
   var gTimeOff = makeG('tj-timeoff', gBody);
   var gBars    = makeG('tj-bars',    gBody);
@@ -327,7 +345,7 @@
 
   /* ── D3 scale and zoom ── */
   function getChartWidth() {
-    return Math.max(200, rightPanel.getBoundingClientRect().width || 800);
+    return Math.max(200, rightColumn.getBoundingClientRect().width || 800);
   }
 
   var baseXScale = d3.scaleUtc()
@@ -369,21 +387,27 @@
       scheduleRender();
     });
 
+  /* Zoom is applied only to the body SVG so a single zoom state is tracked.
+   * Wheel events on the header SVG are forwarded to the body SVG. */
   d3.select(svg).call(zoom);
   svg.addEventListener('wheel', function (e) { e.preventDefault(); }, { passive: false });
+  hdrSvg.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    svg.dispatchEvent(new WheelEvent('wheel', e));
+  }, { passive: false });
 
   /* ── Synchronise vertical scroll ── */
   var _scrollLock = false;
   leftPanel.addEventListener('scroll', function () {
     if (_scrollLock) { return; }
     _scrollLock = true;
-    rightPanel.scrollTop = leftPanel.scrollTop;
+    rightBody.scrollTop = leftPanel.scrollTop;
     _scrollLock = false;
   });
-  rightPanel.addEventListener('scroll', function () {
+  rightBody.addEventListener('scroll', function () {
     if (_scrollLock) { return; }
     _scrollLock = true;
-    leftPanel.scrollTop = rightPanel.scrollTop;
+    leftPanel.scrollTop = rightBody.scrollTop;
     _scrollLock = false;
   });
 
