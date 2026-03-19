@@ -475,6 +475,7 @@
    *   ppd            — pixels per day
    *   bucketDays     — merge this many daily load-stack buckets into one rect
    *   mergeTimeoffPx — coalesce adjacent timeoff zones if pixel gap < this
+   *   showTimeoff    — render off-duty zones at all (hidden at low zoom to preserve row striping)
    *   showArrows     — render dependency arrows at all
    *   large / small  — d3 tick intervals for the header (large = top row, small = bottom)
    *   largeFmt / smallFmt — Intl formatters for each header row
@@ -490,25 +491,25 @@
     var ppd = computePpd(xScale);
 
     if (ppd < 0.2) {
-      return { ppd: ppd, bucketDays: 365, mergeTimeoffPx: 4, showArrows: false,
+      return { ppd: ppd, bucketDays: 365, mergeTimeoffPx: 4, showTimeoff: false, showArrows: false,
                large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcYear.every(1),   smallFmt: tzFmt({ year: 'numeric' }) };
     } else if (ppd < 2) {
-      return { ppd: ppd, bucketDays: 30,  mergeTimeoffPx: 4, showArrows: false,
+      return { ppd: ppd, bucketDays: 30,  mergeTimeoffPx: 4, showTimeoff: false, showArrows: false,
                large: d3.utcYear.every(1),   largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcMonth.every(3),  smallFmt: tzFmt({ month: 'short' }) };
     } else if (ppd < 15) {
-      return { ppd: ppd, bucketDays: 7,   mergeTimeoffPx: 2, showArrows: true,
+      return { ppd: ppd, bucketDays: 7,   mergeTimeoffPx: 2, showTimeoff: true,  showArrows: true,
                large: d3.utcMonth.every(1),
                largeFmt: tzFmtParts({ month: 'short', year: 'numeric' }, ['month', 'year']),
                small: d3.utcMonday.every(1), smallFmt: tzFmt({ day: 'numeric' }) };
     } else if (ppd < 60) {
-      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 1, showArrows: true,
+      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 1, showTimeoff: true,  showArrows: true,
                large: d3.utcMonday.every(1),
                largeFmt: tzFmtParts({ month: 'short', day: 'numeric' }, ['month', 'day']),
                small: d3.utcDay.every(1),    smallFmt: tzFmt({ day: 'numeric' }) };
     } else {
-      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 0, showArrows: true,
+      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 0, showTimeoff: true,  showArrows: true,
                large: d3.utcDay.every(1),
                largeFmt: tzFmtParts({ weekday: 'short', day: 'numeric', month: 'short' },
                                     ['weekday', 'day', 'month']),
@@ -897,7 +898,7 @@
     var lod = computeLod(xScale);
     renderHeader(xScale, lod);
     renderStripes(xScale);
-    renderTimeOff(xScale, lod);
+    if (lod.showTimeoff) { renderTimeOff(xScale, lod); } else { clearG(gTimeOff); }
     renderGrid(xScale, lod);
     renderNowLine(xScale);
     renderBars(xScale, lod);
