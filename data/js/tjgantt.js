@@ -499,8 +499,7 @@
   }
 
   /* Adaptive tick configuration based on pixels-per-day. */
-  function tickConfig(xScale) {
-    var ppd = computePpd(xScale);
+  function tickConfig(ppd) {
 
     if (ppd < 0.2) {
       return { large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
@@ -526,12 +525,12 @@
   }
 
   /* ── Header ── */
-  function renderHeader(xScale) {
+  function renderHeader(xScale, lod) {
     clearG(gHeaderBg);
     clearG(gHeaderLg);
     clearG(gHeaderSm);
 
-    var cfg  = tickConfig(xScale);
+    var cfg  = tickConfig(lod.ppd);
     var w    = getChartWidth();
     var rowH = HDR_H / 2;
 
@@ -580,7 +579,7 @@
   }
 
   /* ── Row stripes ── */
-  function renderStripes(xScale, lod) {
+  function renderStripes(xScale) {
     var w = getChartWidth();
     if (w === _stripesW) { return; }
     _stripesW = w;
@@ -633,9 +632,9 @@
   }
 
   /* ── Grid lines ── */
-  function renderGrid(xScale) {
+  function renderGrid(xScale, lod) {
     clearG(gGrid);
-    var cfg = tickConfig(xScale);
+    var cfg = tickConfig(lod.ppd);
     projectTicks(xScale, cfg.small).forEach(function (d) {
       var x = xScale(d);
       svgEl('line', gGrid, { x1: x, y1: 0, x2: x, y2: chartH,
@@ -905,10 +904,10 @@
   /* ── Main render ── */
   function render(xScale) {
     var lod = computeLod(xScale);
-    renderHeader(xScale);
-    renderStripes(xScale, lod);
+    renderHeader(xScale, lod);
+    renderStripes(xScale);
     renderTimeOff(xScale, lod);
-    renderGrid(xScale);
+    renderGrid(xScale, lod);
     renderNowLine(xScale);
     renderBars(xScale, lod);
     if (lod.showArrows) { renderArrows(xScale); } else { clearG(gArrows); }
