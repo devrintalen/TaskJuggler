@@ -114,6 +114,48 @@ class TaskJuggler
 
     # ── Accessor helpers ────────────────────────────────────────────────────────
 
+    # Return the CellSettingPatternList for the chart (or weekly) column tooltip,
+    # or nil if no such column exists.
+    def chart_tooltip_list
+      return @chart_tooltip_cache if instance_variable_defined?(:@chart_tooltip_cache)
+      col = @table.columns.find { |c| id = c.definition&.id; id == 'chart' || id == 'weekly' }
+      @chart_tooltip_cache = col&.definition&.tooltip
+    end
+
+    # Evaluate the chart column tooltip for _property_ / _sc_idx_ and return the
+    # rendered HTML as a String, or nil when no tooltip is defined or matches.
+    def chart_tooltip_html(property, sc_idx)
+      ttip_list = chart_tooltip_list
+      return nil unless ttip_list
+
+      bq = base_query
+      return nil unless bq
+
+      q = bq.dup
+      q.property    = property
+      q.scenarioIdx = sc_idx
+
+      ttip = ttip_list.getPattern(q)
+      return nil unless ttip
+      return nil if ttip.respond_to?(:empty?) && ttip.empty?
+
+      ttip.setQuery(q) if ttip.respond_to?(:functionHandler)
+
+      if ttip.respond_to?(:to_html)
+        el = ttip.to_html
+        return nil if el.nil?
+        if el.is_a?(Array)
+          el.compact.map { |e| e.to_s(0) }.join
+        else
+          el.to_s(0)
+        end
+      else
+        ttip.to_s
+      end
+    rescue
+      nil
+    end
+
     # The project, accessed via any cell's query.
     def project
       return @project_cache if instance_variable_defined?(:@project_cache)
@@ -211,7 +253,7 @@ class TaskJuggler
       wbs = task.get('bsi') rescue nil
       wbs ||= task.fullId
 
-      {
+      row = {
         'rowType'     => 'task',
         'rowSpan'     => 1,
         'id'          => task.fullId,
@@ -223,6 +265,9 @@ class TaskJuggler
         'scenarios'   => { sc_id => sc_data },
         'depends'     => depends
       }
+      ttip = chart_tooltip_html(task, idx)
+      row['tooltip'] = ttip if ttip
+      row
     end
 
     def build_resource_row(no)
@@ -257,7 +302,7 @@ class TaskJuggler
         cols_data[col_id] = htmljs_query_str(bq, resource, col_id, idx)
       end
 
-      {
+      row = {
         'rowType'  => 'resource',
         'no'       => no,
         'id'       => resource.fullId,
@@ -268,6 +313,9 @@ class TaskJuggler
         'cols'     => cols_data,
         'loadData' => { sc_id => load_sc }
       }
+      ttip = chart_tooltip_html(resource, idx)
+      row['tooltip'] = ttip if ttip
+      row
     end
 
     def build_nested_resource_row
@@ -292,7 +340,7 @@ class TaskJuggler
                                       chart_start, chart_end)
       end
 
-      {
+      row = {
         'rowType'  => 'nested-resource',
         'id'       => resource.fullId,
         'name'     => resource.name,
@@ -302,6 +350,9 @@ class TaskJuggler
         'isLeaf'   => resource.children.empty?,
         'loadData' => { sc_id => load_sc }
       }
+      ttip = chart_tooltip_html(resource, idx)
+      row['tooltip'] = ttip if ttip
+      row
     end
 
     def build_nested_task_row
@@ -325,7 +376,7 @@ class TaskJuggler
                                       chart_start, chart_end)
       end
 
-      {
+      row = {
         'rowType'  => 'nested-task',
         'id'       => task.fullId,
         'name'     => task.name,
@@ -334,6 +385,9 @@ class TaskJuggler
         'isLeaf'   => task.children.empty?,
         'loadData' => { sc_id => load_sc }
       }
+      ttip = chart_tooltip_html(task, idx)
+      row['tooltip'] = ttip if ttip
+      row
     end
 
     # ── Fallback load/timeoff helpers ───────────────────────────────────────────

@@ -71,6 +71,39 @@
   if (!container) { return; }
   container.innerHTML = '';
 
+  /* ── Floating tooltip ── */
+  var tooltipDiv = document.createElement('div');
+  tooltipDiv.style.cssText =
+    'position:fixed;z-index:10000;pointer-events:none;display:none;' +
+    'background:#fff;border:1px solid #aaa;padding:6px 10px;' +
+    'max-width:450px;font-size:11px;font-family:sans-serif;' +
+    'box-shadow:2px 2px 6px rgba(0,0,0,0.25);border-radius:3px;' +
+    'line-height:1.4;';
+  document.body.appendChild(tooltipDiv);
+
+  function showTooltip(html, e) {
+    if (!html) { return; }
+    tooltipDiv.innerHTML = html;
+    tooltipDiv.style.display = 'block';
+    moveTooltip(e);
+  }
+
+  function moveTooltip(e) {
+    var x = e.clientX + 16;
+    var y = e.clientY + 16;
+    /* Keep within viewport */
+    var tw = tooltipDiv.offsetWidth;
+    var th = tooltipDiv.offsetHeight;
+    if (x + tw > window.innerWidth  - 8) { x = e.clientX - tw - 8; }
+    if (y + th > window.innerHeight - 8) { y = e.clientY - th - 8; }
+    tooltipDiv.style.left = x + 'px';
+    tooltipDiv.style.top  = y + 'px';
+  }
+
+  function hideTooltip() {
+    tooltipDiv.style.display = 'none';
+  }
+
   var rows     = data.rows;
   var project  = data.project;
   var sc0      = (project.scenarios || [])[0] || 'plan';
@@ -683,10 +716,27 @@
           } else {
             renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
           }
+
+          /* Attach tooltip if defined for this row */
+          if (row.tooltip) {
+            var ttipHtml = row.tooltip;
+            g.style.cursor = 'help';
+            g.addEventListener('mouseenter', function (e) { showTooltip(ttipHtml, e); });
+            g.addEventListener('mousemove',  function (e) { moveTooltip(e); });
+            g.addEventListener('mouseleave', hideTooltip);
+          }
         });
       } else {
         /* Load stack row — render proportional bars for primary scenario */
-        renderLoadStack(row, y0, xScale, w, lod);
+        var lg = makeG('tj-loadstack', gBars);
+        renderLoadStack(row, y0, xScale, w, lod, lg);
+        if (row.tooltip) {
+          var lttipHtml = row.tooltip;
+          lg.style.cursor = 'help';
+          lg.addEventListener('mouseenter', function (e) { showTooltip(lttipHtml, e); });
+          lg.addEventListener('mousemove',  function (e) { moveTooltip(e); });
+          lg.addEventListener('mouseleave', hideTooltip);
+        }
       }
     });
   }
@@ -772,7 +822,8 @@
    *      (last category → first), so that for ['assigned','busy','free'] the
    *      order from top is: free (green), busy (pink), assigned (red).
    * Each daily bucket maps to one column of stacked rectangles. */
-  function renderLoadStack(row, yTop, xScale, chartWidth, lod) {
+  function renderLoadStack(row, yTop, xScale, chartWidth, lod, targetG) {
+    if (!targetG) { targetG = gBars; }
     var scId = (project.scenarios || [sc0])[0] || sc0;
     var ld   = row.loadData && row.loadData[scId];
     if (!ld || !ld.buckets || !ld.buckets.length) { return; }
@@ -808,7 +859,7 @@
       vals.forEach(function (v) { total += Math.max(0, v || 0); });
 
       /* Always draw the frame, even when total == 0 (matches Ruby drawFrame). */
-      svgEl('rect', gBars, {
+      svgEl('rect', targetG, {
         x: x0, y: yTop + 1, width: bw, height: frameH,
         fill: C.loadstackframe
       });
@@ -821,7 +872,7 @@
       for (var ci = categories.length - 1; ci >= 0; ci--) {
         var h = Math.max(0, vals[ci] || 0) / total * innerH;
         if (h < 0.5) { yUsed += h; continue; }
-        svgEl('rect', gBars, {
+        svgEl('rect', targetG, {
           x: x0 + 1, y: yTop + 2 + yUsed,
           width: Math.max(0, bw - 2), height: h,
           fill: loadCatColor[categories[ci]] || '#888'
