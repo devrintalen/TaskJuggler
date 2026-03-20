@@ -66,6 +66,9 @@
   var LOD_FADE_MS         = 200;                              // duration of show/hide opacity transitions
   var LOD_FADE_TRANSITION = 'opacity ' + LOD_FADE_MS + 'ms'; // pre-built CSS transition string
   var TIMEOFF_MIN_PX      = 6;   // hide off-duty zones narrower than this; show again when they grow back
+  /* Extra viewport margin rendered during full builds so the pan fast path can
+   * shift the pre-rendered content without missing elements at the edges. */
+  var RENDER_MARGIN = 400;
 
   function fmtDate(s) {
     if (!s) { return ''; }
@@ -212,6 +215,7 @@
   var yOffsets = buildYOffsets();
   var chartH   = yOffsets[yOffsets.length - 1];
   var _stripesW = -1;   // cached width for stripe invalidation
+  var _panBaseT = null; // zoom transform {x,k} saved at last full render (pan fast-path)
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
@@ -754,8 +758,6 @@
    * the enter selection as the user zooms in and out.
    * Zones beyond TIMEOFF_PAN_MARGIN px outside the viewport are excluded
    * to prevent spurious enter/exit fades while panning. */
-  var TIMEOFF_PAN_MARGIN = 300;  /* px — wide enough to cover any single pan step */
-
   function renderTimeOff(xScale) {
     var w       = getChartWidth();
     var allData = [];
@@ -768,7 +770,7 @@
       zones.forEach(function (zone) {
         var x0 = xScale(new Date(zone[0] * 1000));
         var x1 = xScale(new Date(zone[1] * 1000));
-        if (x1 < -TIMEOFF_PAN_MARGIN || x0 > w + TIMEOFF_PAN_MARGIN || x1 - x0 < TIMEOFF_MIN_PX) { return; }
+        if (x1 < -RENDER_MARGIN || x0 > w + RENDER_MARGIN || x1 - x0 < TIMEOFF_MIN_PX) { return; }
         allData.push({ key: i + '/' + zone[0], x: x0, width: x1 - x0, y: y, h: h });
       });
     });
@@ -803,13 +805,27 @@
   }
 
   /* ── Grid lines ── */
+  /* Uses a D3 join keyed by tick timestamp (same pattern as renderHeader) so
+   * that zooming within the same LOD updates positions in place rather than
+   * destroying and recreating DOM elements.  Ticks are generated RENDER_MARGIN
+   * beyond each edge so the pan fast path can shift the group without gaps. */
   function renderGrid(xScale, lod) {
-    clearG(gGrid);
-    projectTicks(xScale, lod.small).forEach(function (d) {
-      var x = xScale(d);
-      svgEl('line', gGrid, { x1: x, y1: 0, x2: x, y2: chartH,
-                              stroke: C.gridLine, 'stroke-width': 1 });
+    var w        = getChartWidth();
+    var expScale = d3.scaleUtc()
+      .domain([xScale.invert(-RENDER_MARGIN), xScale.invert(w + RENDER_MARGIN)])
+      .range([-RENDER_MARGIN, w + RENDER_MARGIN]);
+    var tickData = projectTicks(expScale, lod.small).map(function (d) {
+      return { t: d.getTime(), x: xScale(d) };
     });
+    d3.select(gGrid).selectAll('line')
+      .data(tickData, function (d) { return d.t; })
+      .join(function (enter) {
+        return enter.append('line')
+          .attr('stroke', C.gridLine).attr('stroke-width', 1)
+          .attr('y1', 0).attr('y2', chartH);
+      })
+      .attr('x1', function (d) { return d.x; })
+      .attr('x2', function (d) { return d.x; });
   }
 
   /* ── Now line ── */
@@ -817,7 +833,7 @@
     clearG(gNow);
     var x = xScale(nowDate);
     var w = getChartWidth();
-    if (x >= 0 && x <= w) {
+    if (x >= -RENDER_MARGIN && x <= w + RENDER_MARGIN) {
       svgEl('line', gNow, { x1: x, y1: 0, x2: x, y2: chartH,
                              stroke: C.nowline, 'stroke-width': 1 });
     }
@@ -846,7 +862,7 @@
           /* Viewport cull */
           var bx0 = xScale(tStart);
           var bx1 = xScale(tEnd);
-          if (bx1 < 0 || bx0 > w) { return; }
+          if (bx1 < -RENDER_MARGIN || bx0 > w + RENDER_MARGIN) { return; }
           /* Width cull (skip milestones — they are single-point markers) */
           if (!sc.milestone && (bx1 - bx0) < 1) { return; }
 
@@ -1002,8 +1018,8 @@
      * can be culled with a plain numeric comparison — no Date allocation or
      * xScale call needed.  Buckets are chronologically sorted, so we can
      * break out of the loop once we are past the right edge. */
-    var visStartS = xScale.invert(0).getTime() / 1000;
-    var visEndS   = xScale.invert(chartWidth).getTime() / 1000;
+    var visStartS = xScale.invert(-RENDER_MARGIN).getTime() / 1000;
+    var visEndS   = xScale.invert(chartWidth + RENDER_MARGIN).getTime() / 1000;
 
     /* At quarter/year LOD, nested-resource rows collapse to a single bar
      * anchored to the parent task's start/end rather than bucket boundaries,
@@ -1171,8 +1187,48 @@
   }
 
   /* ── Main render ── */
+  /* Two paths:
+   *
+   * Pan fast path — when the zoom scale (k) is unchanged and the accumulated
+   * pan (dx) is within RENDER_MARGIN of the last full render:
+   *   • Apply a single transform="translate(dx,0)" to each date-positioned group.
+   *   • Only update the header (D3 join, cheap) and the debug overlay.
+   *   • All other groups (bars, grid, now-line, timeoff, arrows) shift as one
+   *     without any DOM creation or attribute mutation per element.
+   *
+   * Full render — on zoom level change or when dx exceeds RENDER_MARGIN:
+   *   • Reset group transforms.
+   *   • Rebuild everything, but extend the viewport cull by RENDER_MARGIN on
+   *     each side so future fast-path pans have pre-rendered content available.
+   */
   function render(xScale) {
     var lod = computeLod(xScale);
+    var t   = d3.zoomTransform(svg);
+
+    if (_panBaseT !== null && t.k === _panBaseT.k) {
+      var dx = t.x - _panBaseT.x;
+      if (Math.abs(dx) < RENDER_MARGIN) {
+        /* Fast path: translate pre-rendered body content, refresh header only. */
+        var xlate = 'translate(' + dx + ',0)';
+        gBars.setAttribute('transform',    xlate);
+        gGrid.setAttribute('transform',    xlate);
+        gNow.setAttribute('transform',     xlate);
+        gTimeOff.setAttribute('transform', xlate);
+        gArrows.setAttribute('transform',  xlate);
+        updateDebug(lod);
+        renderHeader(xScale, lod);
+        return;
+      }
+    }
+
+    /* Full render: reset transforms, rebuild with RENDER_MARGIN expansion. */
+    _panBaseT = { x: t.x, k: t.k };
+    gBars.removeAttribute('transform');
+    gGrid.removeAttribute('transform');
+    gNow.removeAttribute('transform');
+    gTimeOff.removeAttribute('transform');
+    gArrows.removeAttribute('transform');
+
     updateDebug(lod);
     renderHeader(xScale, lod);
     renderStripes(xScale);
