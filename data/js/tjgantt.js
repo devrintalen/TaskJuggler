@@ -339,12 +339,19 @@
     var isTask  = rowType === 'task';
 
     if (isTask) {
-      if      (col.id === 'bsi')     { return row.wbs || ''; }
-      else if (col.id === 'start')   { return fmtDate(sc.start); }
-      else if (col.id === 'end')     { return fmtDate(sc.end);   }
-      else if (col.id === 'effort')  { return sc.effort  || ''; }
-      else if (col.id === 'cost')    { return sc.cost    || ''; }
-      else if (col.id === 'revenue') { return sc.revenue || ''; }
+      if      (col.id === 'bsi')      { return row.wbs || ''; }
+      else if (col.id === 'id')       { return row.id  || ''; }
+      else if (col.id === 'start')    { return fmtDate(sc.start); }
+      else if (col.id === 'end')      { return fmtDate(sc.end);   }
+      else if (col.id === 'effort')   { return sc.effort   || ''; }
+      else if (col.id === 'duration') { return sc.duration || ''; }
+      else if (col.id === 'cost')     { return sc.cost     || ''; }
+      else if (col.id === 'revenue')  { return sc.revenue  || ''; }
+      else if (col.id === 'complete') {
+        return (sc && sc.complete != null) ? Math.round(sc.complete) + '%' : '';
+      }
+      /* Fallback: columns like note, status, responsible, etc. */
+      if (row.cols && row.cols[col.id] != null) { return row.cols[col.id]; }
       return '';
     } else {
       /* Resource / nested rows */

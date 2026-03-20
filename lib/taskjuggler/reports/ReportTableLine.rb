@@ -231,8 +231,7 @@ class TaskJuggler
       sc_data = {
         'start'     => t_start ? t_start.strftime('%Y-%m-%d') : nil,
         'end'       => t_end   ? t_end.strftime('%Y-%m-%d')   : nil,
-        'duration'  => (t_start && t_end) ?
-                       ((t_end - t_start) / 86400.0).round : nil,
+        'duration'  => htmljs_query_str(bq, task, 'duration', idx),
         'complete'  => complete,
         'milestone' => task['milestone', idx],
         'effort'    => htmljs_query_str(bq, task, 'effort',  idx),
@@ -253,6 +252,19 @@ class TaskJuggler
       wbs = task.get('bsi') rescue nil
       wbs ||= task.fullId
 
+      # Collect extra column values not already in sc_data (mirrors resource row
+      # behaviour so that columns like 'note', 'status', 'responsible', etc. are
+      # available to the JS renderer via row.cols[col.id]).
+      sc_keys = %w[chart weekly name bsi start end duration effort cost revenue
+                   complete].to_set
+      cols_data = {}
+      @table.columns.each do |col|
+        col_id = col.definition&.id
+        next if col_id.nil? || sc_keys.include?(col_id)
+        v = htmljs_query_str(bq, task, col_id, idx)
+        cols_data[col_id] = v unless v.nil?
+      end
+
       row = {
         'rowType'     => 'task',
         'rowSpan'     => 1,
@@ -262,6 +274,7 @@ class TaskJuggler
         'parent'      => task.parent ? task.parent.fullId : nil,
         'level'       => task.level,
         'isContainer' => !task.children.empty?,
+        'cols'        => cols_data,
         'scenarios'   => { sc_id => sc_data },
         'depends'     => depends
       }
