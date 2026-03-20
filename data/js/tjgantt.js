@@ -251,12 +251,6 @@
   var tbody = document.createElement('tbody');
   table.appendChild(tbody);
 
-  /* Build task-level lookup so nested rows can find their scope task's level. */
-  var taskLevelMap = Object.create(null);
-  rows.forEach(function (row) {
-    if ((row.rowType || 'task') === 'task') { taskLevelMap[row.id] = row.level || 0; }
-  });
-
   rows.forEach(function (row, i) {
     var span    = row.rowSpan || 1;
     var rowType = row.rowType || 'task';
@@ -294,17 +288,9 @@
         if (!scSpecific && span > 1) { td.rowSpan = span; }
 
         if (col.id === 'name' && si === 0) {
-          /* Indented icon + name, mirroring the static HTML's 8px-per-level spacer.
+          /* Use indentation from Ruby (matches static HTML treeMode logic).
            * Only rendered once (si === 0); rowSpan covers subsequent rows. */
-          var indentPx;
-          if (isTask) {
-            indentPx = (row.level || 0) * 8;
-          } else if (row.scopeId !== undefined) {
-            var scopeLevel = taskLevelMap[row.scopeId];
-            indentPx = ((scopeLevel !== undefined ? scopeLevel : 0) + 1) * 8;
-          } else {
-            indentPx = (row.level || 0) * 8;
-          }
+          var indentPx = (row.indentation || 0) * 8;
 
           var nameDiv = document.createElement('div');
           nameDiv.style.cssText =

@@ -276,6 +276,7 @@ class TaskJuggler
         'wbs'         => wbs,
         'parent'      => task.parent ? task.parent.fullId : nil,
         'level'       => task.level,
+        'indentation' => @indentation,
         'isContainer' => !task.children.empty?,
         'cols'        => cols_data,
         'scenarios'   => { sc_id => sc_data },
@@ -319,13 +320,14 @@ class TaskJuggler
       end
 
       row = {
-        'rowType'  => 'resource',
-        'no'       => no,
-        'id'       => resource.fullId,
-        'name'     => resource.name,
-        'parent'   => resource.parent ? resource.parent.fullId : nil,
-        'level'    => resource.level,
-        'isLeaf'   => resource.children.empty?,
+        'rowType'     => 'resource',
+        'no'          => no,
+        'id'          => resource.fullId,
+        'name'        => resource.name,
+        'parent'      => resource.parent ? resource.parent.fullId : nil,
+        'level'       => resource.level,
+        'indentation' => @indentation,
+        'isLeaf'      => resource.children.empty?,
         'cols'     => cols_data,
         'loadData' => { sc_id => load_sc }
       }
@@ -358,13 +360,14 @@ class TaskJuggler
       end
 
       row = {
-        'rowType'  => 'nested-resource',
-        'id'       => resource.fullId,
-        'name'     => resource.name,
-        'parent'   => resource.parent ? resource.parent.fullId : nil,
-        'scopeId'  => task.fullId,
-        'level'    => resource.level,
-        'isLeaf'   => resource.children.empty?,
+        'rowType'     => 'nested-resource',
+        'id'          => resource.fullId,
+        'name'        => resource.name,
+        'parent'      => resource.parent ? resource.parent.fullId : nil,
+        'scopeId'     => task.fullId,
+        'level'       => resource.level,
+        'indentation' => @indentation,
+        'isLeaf'      => resource.children.empty?,
         'bsi'      => htmljs_query_str(bq, resource, 'bsi', idx),
         'loadData' => { sc_id => load_sc }
       }
@@ -395,12 +398,13 @@ class TaskJuggler
       end
 
       row = {
-        'rowType'  => 'nested-task',
-        'id'       => task.fullId,
-        'name'     => task.name,
-        'scopeId'  => resource.fullId,
-        'level'    => task.level,
-        'isLeaf'   => task.children.empty?,
+        'rowType'     => 'nested-task',
+        'id'          => task.fullId,
+        'name'        => task.name,
+        'scopeId'     => resource.fullId,
+        'level'       => task.level,
+        'indentation' => @indentation,
+        'isLeaf'      => task.children.empty?,
         'loadData' => { sc_id => load_sc }
       }
       ttip = chart_tooltip_html(task, idx)
