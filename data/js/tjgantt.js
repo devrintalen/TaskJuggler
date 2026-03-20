@@ -314,6 +314,10 @@
         var text = getCellText(row, col, sc);
         td.textContent = text;
         td.title       = text;
+        /* BSI column: match static HTML's 16px left spacer for nested rows */
+        if (col.id === 'bsi' && row.scopeId !== undefined) {
+          td.style.paddingLeft = '20px'; /* 4px base + 16px indent */
+        }
       }
 
       tr.appendChild(td);
