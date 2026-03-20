@@ -682,56 +682,63 @@
   }
 
   /* ── Header ── */
-  function renderHeader(xScale, lod) {
-    clearG(gHeaderBg);
-    clearG(gHeaderLg);
-    clearG(gHeaderSm);
+  /* Background is rendered once and its width updated on resize. */
+  var _hdrBgRect  = svgEl('rect', gHeaderBg, { x: 0, y: 0, height: HDR_H, fill: C.headerBg });
+  var _hdrRowH    = HDR_H / 2;
+  svgEl('line', gHeaderBg, { x1: 0, y1: _hdrRowH - 0.5, x2: 99999, y2: _hdrRowH - 0.5,
+                              stroke: C.headerBorder, 'stroke-width': 1 });
+  svgEl('line', gHeaderBg, { x1: 0, y1: HDR_H - 0.5,    x2: 99999, y2: HDR_H - 0.5,
+                              stroke: C.headerBorder, 'stroke-width': 1 });
 
+  /* Tick groups use D3 joins keyed by timestamp so that:
+   *   • pan/zoom within the same LOD → update positions of existing elements
+   *   • LOD change → old ticks exit, new ones enter (new format, new interval)
+   * Each tick is a <g> containing a separator <line> and a <text> label. */
+  function _renderTickRow(xScale, gEl, ticks, y1, y2, labelY, minAvail, fmtFn, lx0fn, w) {
+    var data = ticks.map(function (d, i) {
+      var x   = xScale(d);
+      var x1  = (i + 1 < ticks.length) ? xScale(ticks[i + 1]) : w;
+      return { t: d.getTime(), x: x, avail: x1 - Math.max(x + 3, 2), label: fmtFn(d) };
+    });
+
+    d3.select(gEl).selectAll('g').data(data, function (d) { return d.t; })
+      .join(function (enter) {
+        var g = enter.append('g');
+        g.append('line')
+          .attr('stroke', C.headerBorder).attr('stroke-width', 1)
+          .attr('y1', y1).attr('y2', y2);
+        g.append('text')
+          .attr('y', labelY).attr('fill', C.headerFg)
+          .attr('font-size', '10px').attr('font-family', 'sans-serif')
+          .attr('font-weight', 'bold');
+        return g;
+      })
+      .each(function (d) {
+        var g  = d3.select(this);
+        var lx = lx0fn(d.x);
+        g.select('line').attr('x1', d.x).attr('x2', d.x);
+        g.select('text').attr('x', lx)
+          .attr('display', d.avail > minAvail ? null : 'none')
+          .text(d.label);
+      });
+  }
+
+  function renderHeader(xScale, lod) {
     var w    = getChartWidth();
     var rowH = HDR_H / 2;
 
-    /* Background (in gHeaderBg = first child of gHeader) */
-    svgEl('rect', gHeaderBg, { x: 0, y: 0, width: w, height: HDR_H, fill: C.headerBg });
-    svgEl('line', gHeaderBg, { x1: 0, y1: rowH - 0.5, x2: w, y2: rowH - 0.5,
-                                stroke: C.headerBorder, 'stroke-width': 1 });
-    svgEl('line', gHeaderBg, { x1: 0, y1: HDR_H - 0.5, x2: w, y2: HDR_H - 0.5,
-                                stroke: C.headerBorder, 'stroke-width': 1 });
+    _hdrBgRect.setAttribute('width', w);
 
-    /* Large ticks — top row */
-    var lgTicks = projectTicks(xScale, lod.large);
-    lgTicks.forEach(function (d, i) {
-      var x0 = xScale(d);
-      var x1 = (i + 1 < lgTicks.length) ? xScale(lgTicks[i + 1]) : w;
-      if (x1 < 0 || x0 > w) { return; }
-      svgEl('line', gHeaderLg, { x1: x0, y1: 0, x2: x0, y2: rowH,
-                                  stroke: C.headerBorder, 'stroke-width': 1 });
-      var lx = Math.max(x0 + 3, 2);
-      if (x1 - lx > 5) {
-        var txt = svgEl('text', gHeaderLg, {
-          x: lx, y: rowH - 5,
-          fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif', 'font-weight': 'bold'
-        });
-        txt.textContent = lod.largeFmt(d);
-      }
-    });
-
-    /* Small ticks — bottom row */
-    var smTicks = projectTicks(xScale, lod.small);
-    smTicks.forEach(function (d, i) {
-      var x0 = xScale(d);
-      var x1 = (i + 1 < smTicks.length) ? xScale(smTicks[i + 1]) : w;
-      if (x1 < 0 || x0 > w) { return; }
-      svgEl('line', gHeaderSm, { x1: x0, y1: rowH, x2: x0, y2: HDR_H,
-                                  stroke: C.headerBorder, 'stroke-width': 1 });
-      var lx = x0 + 3;
-      if (x1 - lx > 4) {
-        var txt2 = svgEl('text', gHeaderSm, {
-          x: lx, y: HDR_H - 4,
-          fill: C.headerFg, 'font-size': '10px', 'font-family': 'sans-serif', 'font-weight': 'bold'
-        });
-        txt2.textContent = lod.smallFmt(d);
-      }
-    });
+    _renderTickRow(
+      xScale, gHeaderLg, projectTicks(xScale, lod.large),
+      0, rowH, rowH - 5, 5,
+      lod.largeFmt, function (x) { return Math.max(x + 3, 2); }, w
+    );
+    _renderTickRow(
+      xScale, gHeaderSm, projectTicks(xScale, lod.small),
+      rowH, HDR_H, HDR_H - 4, 4,
+      lod.smallFmt, function (x) { return x + 3; }, w
+    );
   }
 
   /* ── Row stripes ── */
