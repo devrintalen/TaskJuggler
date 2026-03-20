@@ -158,7 +158,9 @@ class TaskJuggler
       html = []
 
       html << rt_to_html('header')
-      html << generateHtmlTableFrame
+      frame = generateHtmlTableFrame
+      frame['style'] = 'width:100%;margin-bottom:0;'
+      html << frame
 
       # Find GanttChart from the 'chart' column header (if present).
       chart_col = (a('columns') || []).find { |c| c.id == 'chart' }
@@ -213,7 +215,7 @@ class TaskJuggler
 
       # ── Container div ────────────────────────────────────────────────────────
       html << XMLElement.new('div', 'id' => 'tj-gantt-container',
-                             'style' => 'width:100%;font-family:sans-serif;')
+                             'style' => 'width:100%;font-family:sans-serif;margin-top:-1px;')
 
       # ── Inline chart rendering script ────────────────────────────────────────
       chart_src = htmljs_find_data_file('data/js/tjgantt.js')
