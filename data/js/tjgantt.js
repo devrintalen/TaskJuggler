@@ -274,9 +274,12 @@
         var nameDiv = document.createElement('div');
         nameDiv.style.cssText =
           'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
-        if (isTask && iconBase) {
+        if (iconBase) {
+          var iconName = isTask
+            ? (row._isContainer ? 'taskgroup' : 'task')
+            : (row.isLeaf ? 'resource' : 'resourcegroup');
           var img = document.createElement('img');
-          img.src = iconBase + (row._isContainer ? 'taskgroup' : 'task') + '.png';
+          img.src = iconBase + iconName + '.png';
           img.style.cssText = 'flex-shrink:0;margin-right:3px;';
           nameDiv.appendChild(img);
         }
@@ -322,6 +325,7 @@
       /* Resource / nested rows */
       if (col.id === 'no')   { return String(row.no || ''); }
       if (col.id === 'name') { return row.name || ''; }  /* handled above */
+      if (col.id === 'bsi')  { return row.bsi || (row.cols && row.cols['bsi']) || ''; }
       /* Other columns come from row.cols */
       if (row.cols && row.cols[col.id] != null) { return row.cols[col.id]; }
       return '';

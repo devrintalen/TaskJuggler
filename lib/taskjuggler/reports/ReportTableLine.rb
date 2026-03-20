@@ -325,6 +325,7 @@ class TaskJuggler
       gantt  = gantt_chart
       idx    = scenario_idx
       sc_id  = scenario_name(idx)
+      bq     = base_query
 
       gantt_line = gantt&.line_for(resource, task, idx)
       if gantt_line
@@ -348,6 +349,7 @@ class TaskJuggler
         'scopeId'  => task.fullId,
         'level'    => resource.level,
         'isLeaf'   => resource.children.empty?,
+        'bsi'      => htmljs_query_str(bq, resource, 'bsi', idx),
         'loadData' => { sc_id => load_sc }
       }
       ttip = chart_tooltip_html(resource, idx)
