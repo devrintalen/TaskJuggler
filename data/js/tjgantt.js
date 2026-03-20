@@ -250,6 +250,12 @@
   var tbody = document.createElement('tbody');
   table.appendChild(tbody);
 
+  /* Build task-level lookup so nested rows can find their scope task's level. */
+  var taskLevelMap = Object.create(null);
+  rows.forEach(function (row) {
+    if ((row.rowType || 'task') === 'task') { taskLevelMap[row.id] = row.level || 0; }
+  });
+
   rows.forEach(function (row, i) {
     var span    = row.rowSpan || 1;
     var rowType = row.rowType || 'task';
@@ -270,10 +276,26 @@
       if (span > 1) { td.rowSpan = span; }
 
       if (col.id === 'name') {
-        /* Icon + indented name */
+        /* Indented icon + name, mirroring the static HTML's 8px-per-level spacer. */
+        var indentPx;
+        if (isTask) {
+          indentPx = (row.level || 0) * 8;
+        } else if (row.scopeId !== undefined) {
+          /* Nested resource/task: indent = scopeTask.level + 1 level */
+          var scopeLevel = taskLevelMap[row.scopeId];
+          indentPx = ((scopeLevel !== undefined ? scopeLevel : 0) + 1) * 8;
+        } else {
+          indentPx = (row.level || 0) * 8;
+        }
+
         var nameDiv = document.createElement('div');
         nameDiv.style.cssText =
           'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
+        if (indentPx > 0) {
+          var spacer = document.createElement('span');
+          spacer.style.cssText = 'display:inline-block;flex-shrink:0;width:' + indentPx + 'px;';
+          nameDiv.appendChild(spacer);
+        }
         if (iconBase) {
           var iconName = isTask
             ? (row._isContainer ? 'taskgroup' : 'task')
@@ -285,8 +307,7 @@
         }
         var nameSpan = document.createElement('span');
         nameSpan.style.cssText = 'overflow:hidden;white-space:nowrap;';
-        var indent = Math.max(0, ((row.level || 1) - 1) * 2);
-        nameSpan.textContent = '\u00a0'.repeat(indent) + (row.name || '');
+        nameSpan.textContent = row.name || '';
         nameDiv.appendChild(nameSpan);
         td.appendChild(nameDiv);
       } else {
