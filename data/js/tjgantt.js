@@ -63,6 +63,8 @@
   var LOD_PPD_MONTH   = 20;    // below → month scale
   var LOD_PPD_WEEK    = 120;   // below → week scale  (≥ → day scale)
 
+  var LOD_FADE_MS = 200;       // duration of show/hide opacity transitions
+
   function fmtDate(s) {
     if (!s) { return ''; }
     return wdayFmt.format(projectMidnight(s)) + ' ' + s;
@@ -397,6 +399,9 @@
   var gNow     = makeG('tj-now',     gBody);
   var gGrid    = makeG('tj-grid',    gBody);
 
+  var fadeTimeOff = makeFadeable(gTimeOff, { noClear: true });
+  var fadeArrows  = makeFadeable(gArrows);
+
   /* ── D3 scale and zoom ── */
   function getChartWidth() {
     return Math.max(200, rightColumn.getBoundingClientRect().width || 800);
@@ -477,6 +482,63 @@
 
   function clearG(g) {
     while (g.firstChild) { g.removeChild(g.firstChild); }
+  }
+
+  /* Wraps a <g> so that show/hide transitions fade rather than snap.
+   * On the very first call (initial render) no animation is applied.
+   * While visible, re-renders clear and repopulate with no animation.
+   * On hide: fades to opacity 0, then clears DOM after LOD_FADE_MS.
+   * On show: renders content at opacity 0, forces reflow, fades to 1.
+   *
+   * opts.noClear — when true, skip clearG during re-renders; the renderFn
+   *               is responsible for managing its own element lifecycle
+   *               (e.g. via a D3 join). clearG is still called after hiding. */
+  function makeFadeable(g, opts) {
+    opts = opts || {};
+    var visible = null;   /* null = not yet rendered */
+    var timer   = null;
+    return {
+      update: function (show, renderFn) {
+        var initial = visible === null;
+        if (show) {
+          if (timer) { clearTimeout(timer); timer = null; }
+          if (visible) {
+            /* Already shown — redraw in place without animation. */
+            g.style.transition = 'none';
+            g.style.opacity = '1';
+            if (!opts.noClear) { clearG(g); }
+            renderFn();
+          } else {
+            /* Transitioning hidden → shown (or initial render). */
+            if (!opts.noClear) { clearG(g); }
+            renderFn();
+            if (initial) {
+              g.style.opacity = '1';
+            } else {
+              g.style.transition = 'none';
+              g.style.opacity = '0';
+              g.getBoundingClientRect();  /* force reflow before transition */
+              g.style.transition = 'opacity ' + LOD_FADE_MS + 'ms';
+              g.style.opacity = '1';
+            }
+          }
+          visible = true;
+        } else {
+          if (visible || initial) {
+            /* Transitioning shown → hidden (or initial render with show=false). */
+            if (initial) {
+              g.style.opacity = '0';
+              clearG(g);
+            } else {
+              g.style.transition = 'opacity ' + LOD_FADE_MS + 'ms';
+              g.style.opacity = '0';
+              timer = setTimeout(function () { clearG(g); timer = null; }, LOD_FADE_MS);
+            }
+          }
+          visible = false;
+        }
+      }
+    };
   }
 
   /* ── Project-timezone-aware tick helpers ── */
@@ -661,25 +723,55 @@
   }
 
   /* ── Off-duty zones (weekends / holidays per task row) ── */
+  /* Uses a D3 join keyed by zone start time so that absorbed zones (merge)
+   * fade out via the exit selection. Splits and pans update instantly.
+   * Zones beyond TIMEOFF_PAN_MARGIN px outside the viewport are excluded
+   * to prevent spurious enter/exit fades while panning. */
+  var TIMEOFF_PAN_MARGIN = 300;  /* px — wide enough to cover any single pan step */
+
   function renderTimeOff(xScale, lod) {
-    clearG(gTimeOff);
-    var w = getChartWidth();
+    var w       = getChartWidth();
+    var allData = [];
     rows.forEach(function (row, i) {
       if ((row.rowType || 'task') !== 'task') { return; }
       var y      = yOffsets[i];
       var h      = rowVisualHeight(row);
       var zones  = ((row.scenarios || {})[sc0] || {}).timeoff || [];
       var merged = mergeTimeoffZones(zones, xScale, lod.mergeTimeoffPx);
+
       merged.forEach(function (zone) {
         var x0 = xScale(new Date(zone[0] * 1000));
         var x1 = xScale(new Date(zone[1] * 1000));
-        if (x1 <= 0 || x0 >= w || x1 - x0 < 0.5) { return; }
-        svgEl('rect', gTimeOff, {
-          x: x0, y: y, width: x1 - x0, height: h,
-          fill: C.offduty
-        });
+        if (x1 < -TIMEOFF_PAN_MARGIN || x0 > w + TIMEOFF_PAN_MARGIN || x1 - x0 < 0.5) { return; }
+        allData.push({ key: i + '/' + zone[0], x: x0, width: x1 - x0, y: y, h: h });
       });
     });
+
+    var sel = d3.select(gTimeOff).selectAll('rect')
+      .data(allData, function (d) { return d.key; });
+
+    /* Enter: new zones appear instantly (no fade-in — avoids flash on split). */
+    sel.enter().append('rect')
+      .attr('y',       function (d) { return d.y; })
+      .attr('height',  function (d) { return d.h; })
+      .attr('fill',    C.offduty)
+      .attr('x',       function (d) { return d.x; })
+      .attr('width',   function (d) { return d.width; })
+      .attr('opacity', 1);
+
+    /* Update: existing zones always update position instantly.
+     * opacity is reset to 1 in case the element was mid-fade-out when it
+     * re-entered the update selection (rapid merge→split before exit completes). */
+    sel.interrupt()
+      .attr('x',       function (d) { return d.x; })
+      .attr('width',   function (d) { return d.width; })
+      .attr('opacity', 1);
+
+    /* Exit: zones absorbed by a merge fade out then are removed. */
+    sel.exit()
+      .transition().duration(LOD_FADE_MS)
+      .attr('opacity', 0)
+      .remove();
   }
 
   /* ── Grid lines ── */
@@ -1008,11 +1100,11 @@
     updateDebug(lod);
     renderHeader(xScale, lod);
     renderStripes(xScale);
-    if (lod.showTimeoff) { renderTimeOff(xScale, lod); } else { clearG(gTimeOff); }
+    fadeTimeOff.update(lod.showTimeoff, function () { renderTimeOff(xScale, lod); });
     renderGrid(xScale, lod);
     renderNowLine(xScale);
     renderBars(xScale, lod);
-    if (lod.showArrows) { renderArrows(xScale); } else { clearG(gArrows); }
+    fadeArrows.update(lod.showArrows, function () { renderArrows(xScale); });
   }
 
   render(currentXScale);
