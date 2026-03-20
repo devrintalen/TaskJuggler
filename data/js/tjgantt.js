@@ -1125,7 +1125,7 @@
   }
 
   /* ── Debug overlay ── */
-  var DEBUG_OVERLAY = false;
+  var DEBUG_OVERLAY = true;
 
   var dbgDiv = (function () {
     var d = document.createElement('div');
@@ -1231,6 +1231,12 @@
     window.tjGanttPerfReport = function () {
       _rafActive = false;
       return { fns: _perfData, frames: _rafTimes };
+    };
+
+    window.tjGanttSetPpd = function (targetPpd) {
+      var basePpd = computePpd(baseXScale);
+      var k = targetPpd / basePpd;
+      d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(k));
     };
   }
 
