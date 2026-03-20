@@ -1141,7 +1141,7 @@
   }
 
   /* ── Debug overlay ── */
-  var DEBUG_OVERLAY = true;
+  var DEBUG_OVERLAY = false;
 
   var dbgDiv = (function () {
     var d = document.createElement('div');
