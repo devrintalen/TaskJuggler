@@ -65,6 +65,7 @@
 
   var LOD_FADE_MS         = 200;                              // duration of show/hide opacity transitions
   var LOD_FADE_TRANSITION = 'opacity ' + LOD_FADE_MS + 'ms'; // pre-built CSS transition string
+  var TIMEOFF_MIN_PX      = 6;   // hide off-duty zones narrower than this; show again when they grow back
 
   function fmtDate(s) {
     if (!s) { return ''; }
@@ -590,8 +591,7 @@
    * Returns an LOD descriptor for the current zoom level. Fields:
    *   ppd            — pixels per day
    *   bucketDays     — merge this many daily load-stack buckets into one rect
-   *   mergeTimeoffPx — coalesce adjacent timeoff zones if pixel gap < this
-   *   showTimeoff    — render off-duty zones at all (hidden at low zoom to preserve row striping)
+   *   (off-duty zone visibility is controlled by the global TIMEOFF_MIN_PX constant)
    *   showArrows     — render dependency arrows at all
    *   large / small  — d3 tick intervals for the header (large = top row, small = bottom)
    *   largeFmt / smallFmt — Intl formatters for each header row
@@ -608,29 +608,29 @@
 
     if (ppd < LOD_PPD_YEAR) {
 	/* YEAR */
-      return { ppd: ppd, bucketDays: 365, mergeTimeoffPx: 4, showTimeoff: false, showArrows: false,
+      return { ppd: ppd, bucketDays: 365, showArrows: false,
                large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcYear.every(1),   smallFmt: tzFmt({ year: 'numeric' }) };
     } else if (ppd < LOD_PPD_QUARTER) {
 	/* QUARTER */
-      return { ppd: ppd, bucketDays: 30,  mergeTimeoffPx: 4, showTimeoff: false, showArrows: false,
+      return { ppd: ppd, bucketDays: 30,  showArrows: false,
                large: d3.utcYear.every(1),   largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcMonth.every(3),  smallFmt: tzFmt({ month: 'short' }) };
     } else if (ppd < LOD_PPD_MONTH) {
 	/* MONTH */
-      return { ppd: ppd, bucketDays: 7,   mergeTimeoffPx: 3, showTimeoff: true,  showArrows: true,
+      return { ppd: ppd, bucketDays: 7,   showArrows: true,
                large: d3.utcMonth.every(1),
                largeFmt: tzFmtParts({ month: 'short', year: 'numeric' }, ['month', 'year']),
                small: d3.utcMonday.every(1), smallFmt: tzFmt({ day: 'numeric' }) };
     } else if (ppd < LOD_PPD_WEEK) {
 	/* WEEK */
-      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 1, showTimeoff: true,  showArrows: true,
+      return { ppd: ppd, bucketDays: 1,   showArrows: true,
                large: d3.utcMonday.every(1),
                largeFmt: tzFmtParts({ month: 'short', day: 'numeric' }, ['month', 'day']),
                small: d3.utcDay.every(1),    smallFmt: tzFmt({ day: 'numeric' }) };
     } else {
 	/* DAY */
-      return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 0, showTimeoff: true,  showArrows: true,
+      return { ppd: ppd, bucketDays: 1,   showArrows: true,
                large: d3.utcDay.every(1),
                largeFmt: tzFmtParts({ weekday: 'short', day: 'numeric', month: 'short' },
                                     ['weekday', 'day', 'month']),
@@ -707,43 +707,27 @@
     });
   }
 
-  /* Coalesce adjacent timeoff zones whose pixel gap is < minGapPx.
-   * Input zones must be sorted chronologically (as emitted by Ruby). */
-  function mergeTimeoffZones(zones, xScale, minGapPx) {
-    if (!zones.length || minGapPx <= 0) { return zones; }
-    var merged = [];
-    var cur    = [zones[0][0], zones[0][1]];
-    for (var zi = 1; zi < zones.length; zi++) {
-      var next  = zones[zi];
-      var gapPx = xScale(new Date(next[0] * 1000)) - xScale(new Date(cur[1] * 1000));
-      if (gapPx < minGapPx) { cur[1] = next[1]; }
-      else { merged.push(cur); cur = [next[0], next[1]]; }
-    }
-    merged.push(cur);
-    return merged;
-  }
-
   /* ── Off-duty zones (weekends / holidays per task row) ── */
-  /* Uses a D3 join keyed by zone start time so that absorbed zones (merge)
-   * fade out via the exit selection. Splits and pans update instantly.
+  /* Uses a D3 join keyed by zone start time so that zones narrower than
+   * TIMEOFF_MIN_PX fade out via the exit selection and reappear via
+   * the enter selection as the user zooms in and out.
    * Zones beyond TIMEOFF_PAN_MARGIN px outside the viewport are excluded
    * to prevent spurious enter/exit fades while panning. */
   var TIMEOFF_PAN_MARGIN = 300;  /* px — wide enough to cover any single pan step */
 
-  function renderTimeOff(xScale, lod) {
+  function renderTimeOff(xScale) {
     var w       = getChartWidth();
     var allData = [];
     rows.forEach(function (row, i) {
       if ((row.rowType || 'task') !== 'task') { return; }
       var y      = yOffsets[i];
       var h      = rowVisualHeight(row);
-      var zones  = ((row.scenarios || {})[sc0] || {}).timeoff || [];
-      var merged = mergeTimeoffZones(zones, xScale, lod.mergeTimeoffPx);
+      var zones = ((row.scenarios || {})[sc0] || {}).timeoff || [];
 
-      merged.forEach(function (zone) {
+      zones.forEach(function (zone) {
         var x0 = xScale(new Date(zone[0] * 1000));
         var x1 = xScale(new Date(zone[1] * 1000));
-        if (x1 < -TIMEOFF_PAN_MARGIN || x0 > w + TIMEOFF_PAN_MARGIN || x1 - x0 < 0.5) { return; }
+        if (x1 < -TIMEOFF_PAN_MARGIN || x0 > w + TIMEOFF_PAN_MARGIN || x1 - x0 < TIMEOFF_MIN_PX) { return; }
         allData.push({ key: i + '/' + zone[0], x: x0, width: x1 - x0, y: y, h: h });
       });
     });
@@ -751,24 +735,26 @@
     var sel = d3.select(gTimeOff).selectAll('rect')
       .data(allData, function (d) { return d.key; });
 
-    /* Enter: new zones appear instantly (no fade-in — avoids flash on split). */
+    /* Enter: zones fade in when they grow wide enough. */
     sel.enter().append('rect')
       .attr('y',       function (d) { return d.y; })
       .attr('height',  function (d) { return d.h; })
       .attr('fill',    C.offduty)
       .attr('x',       function (d) { return d.x; })
       .attr('width',   function (d) { return d.width; })
+      .attr('opacity', 0)
+      .transition().duration(LOD_FADE_MS)
       .attr('opacity', 1);
 
     /* Update: existing zones always update position instantly.
      * opacity is reset to 1 in case the element was mid-fade-out when it
-     * re-entered the update selection (rapid merge→split before exit completes). */
+     * re-entered the update selection (e.g. zoom reversal before exit completes). */
     sel.interrupt()
       .attr('x',       function (d) { return d.x; })
       .attr('width',   function (d) { return d.width; })
       .attr('opacity', 1);
 
-    /* Exit: zones absorbed by a merge fade out then are removed. */
+    /* Exit: zones that become too narrow fade out then are removed. */
     sel.exit()
       .transition().duration(LOD_FADE_MS)
       .attr('opacity', 0)
@@ -1101,7 +1087,7 @@
     updateDebug(lod);
     renderHeader(xScale, lod);
     renderStripes(xScale);
-    fadeTimeOff.update(lod.showTimeoff, function () { renderTimeOff(xScale, lod); });
+    fadeTimeOff.update(true, function () { renderTimeOff(xScale); });
     renderGrid(xScale, lod);
     renderNowLine(xScale);
     renderBars(xScale, lod);
