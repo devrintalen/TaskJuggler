@@ -171,10 +171,10 @@
   });
 
 
-  /* Index of task rows by id — used by renderLoadStack to look up parent tasks. */
+  /* Index of task rows by id — used by renderLoadStack and renderArrows. */
   var taskRowById = {};
-  rows.forEach(function (r) {
-    if ((r.rowType || 'task') === 'task') { taskRowById[r.id] = r; }
+  rows.forEach(function (r, i) {
+    if ((r.rowType || 'task') === 'task') { taskRowById[r.id] = { row: r, idx: i }; }
   });
 
   var projectStart = project.start ? projectMidnight(project.start) : (rows[0] && rows[0]._start) || new Date();
@@ -182,12 +182,6 @@
   var nowDate      = project.now   ? projectMidnight(project.now)   : new Date();
 
   /* ── Row height helpers ── */
-  /* Returns whether this row is a resource row (not a primary task row). */
-  function isResourceRow(row) {
-    var rt = row.rowType;
-    return rt === 'nested-resource' || rt === 'nested-task' || rt === 'resource';
-  }
-
   /* Background colour for a row, distinguishing task rows (blue) from resource
    * rows (warm peach) to match .taskcell1/2 and .resourcecell1/2 in CSS.
    * nested-task rows are tasks visually, so they use task colours. */
@@ -694,7 +688,8 @@
    *   • pan/zoom within the same LOD → update positions of existing elements
    *   • LOD change → old ticks exit, new ones enter (new format, new interval)
    * Each tick is a <g> containing a separator <line> and a <text> label. */
-  function _renderTickRow(xScale, gEl, ticks, y1, y2, labelY, minAvail, fmtFn, lx0fn, w) {
+  /* lxMin: minimum x for the label (clamps x+3); use 0 for no effective clamp. */
+  function _renderTickRow(xScale, gEl, ticks, y1, y2, labelY, minAvail, fmtFn, lxMin, w) {
     var data = ticks.map(function (d, i) {
       var x   = xScale(d);
       var x1  = (i + 1 < ticks.length) ? xScale(ticks[i + 1]) : w;
@@ -715,7 +710,7 @@
       })
       .each(function (d) {
         var g  = d3.select(this);
-        var lx = lx0fn(d.x);
+        var lx = Math.max(d.x + 3, lxMin);
         g.select('line').attr('x1', d.x).attr('x2', d.x);
         g.select('text').attr('x', lx)
           .attr('display', d.avail > minAvail ? null : 'none')
@@ -723,22 +718,19 @@
       });
   }
 
+  var _hdrBgRectW = -1;
   function renderHeader(xScale, lod) {
-    var w    = getChartWidth();
-    var rowH = HDR_H / 2;
+    var w = getChartWidth();
 
-    _hdrBgRect.setAttribute('width', w);
+    if (w !== _hdrBgRectW) {
+      _hdrBgRect.setAttribute('width', w);
+      _hdrBgRectW = w;
+    }
 
-    _renderTickRow(
-      xScale, gHeaderLg, projectTicks(xScale, lod.large),
-      0, rowH, rowH - 5, 5,
-      lod.largeFmt, function (x) { return Math.max(x + 3, 2); }, w
-    );
-    _renderTickRow(
-      xScale, gHeaderSm, projectTicks(xScale, lod.small),
-      rowH, HDR_H, HDR_H - 4, 4,
-      lod.smallFmt, function (x) { return x + 3; }, w
-    );
+    _renderTickRow(xScale, gHeaderLg, projectTicks(xScale, lod.large),
+      0, _hdrRowH, _hdrRowH - 5, 5, lod.largeFmt, 2, w);
+    _renderTickRow(xScale, gHeaderSm, projectTicks(xScale, lod.small),
+      _hdrRowH, HDR_H, HDR_H - 4, 4, lod.smallFmt, 0, w);
   }
 
   /* ── Row stripes ── */
@@ -1018,17 +1010,21 @@
      * so the bar edges stay stable as the user crosses the LOD threshold. */
     var buckets;
     if (row.rowType === 'nested-resource' && lod.bucketDays >= 30) {
-      var parentTask = row.scopeId && taskRowById[row.scopeId];
+      var parentEntry = row.scopeId && taskRowById[row.scopeId];
+      var parentTask  = parentEntry && parentEntry.row;
       if (parentTask && parentTask._start && parentTask._end) {
-        var nCats = (ld.buckets[0] || []).length - 1;
-        var sums  = new Array(nCats).fill(0);
-        ld.buckets.forEach(function (b) {
-          for (var ci = 0; ci < nCats; ci++) { sums[ci] += Math.max(0, b[ci + 1] || 0); }
-        });
+        if (!row._loadSums) {
+          var nCats = (ld.buckets[0] || []).length - 1;
+          var sums  = new Array(nCats).fill(0);
+          ld.buckets.forEach(function (b) {
+            for (var ci = 0; ci < nCats; ci++) { sums[ci] += Math.max(0, b[ci + 1] || 0); }
+          });
+          row._loadSums = sums;
+        }
         var taskStartS = parentTask._start.getTime() / 1000;
         var taskEndS   = parentTask._end.getTime()   / 1000;
-        var synthetic  = [taskStartS].concat(sums);
-        synthetic._taskEndS = taskEndS;
+        var synthetic  = [taskStartS].concat(row._loadSums);
+        synthetic._days = (taskEndS - taskStartS) / 86400;
         buckets = [synthetic];
       }
     }
@@ -1037,9 +1033,7 @@
     for (var bi = 0; bi < buckets.length; bi++) {
       var bucket    = buckets[bi];
       var bucketS   = bucket[0];          /* Unix seconds at bucket start */
-      var durationS = bucket._taskEndS
-                      ? (bucket._taskEndS - bucketS)
-                      : (bucket._days || 1) * 86400;
+      var durationS = (bucket._days || 1) * 86400;
       if (bucketS + durationS <= visStartS) { continue; }   /* entirely left of view */
       if (bucketS             >= visEndS)   { break; }       /* entirely right of view */
 
@@ -1080,27 +1074,19 @@
   function renderArrows(xScale) {
     clearG(gArrows);
 
-    /* Build index: rowId → { row, rowIndex } for task rows only. */
-    var rowIdx = {};
-    rows.forEach(function (r, i) {
-      if ((r.rowType || 'task') === 'task') {
-        rowIdx[r.id] = { row: r, idx: i };
-      }
-    });
-
     rows.forEach(function (row, i) {
       if ((row.rowType || 'task') !== 'task') { return; }
       if (!row.depends || !row.depends.length) { return; }
       row.depends.forEach(function (dep) {
         if ((dep.scenario || sc0) !== sc0) { return; }
-        var predInfo = rowIdx[dep.id];
+        var predInfo = taskRowById[dep.id];
         if (!predInfo) { return; }
         var pred = predInfo.row;
         if (!pred._end || !row._start) { return; }
 
         /* Skip inherited dependencies. */
         if (row.parent) {
-          var parentInfo = rowIdx[row.parent];
+          var parentInfo = taskRowById[row.parent];
           if (parentInfo && parentInfo.row.depends && parentInfo.row.depends.some(function (pd) {
             return pd.id === dep.id && (pd.scenario || sc0) === sc0;
           })) { return; }
@@ -1233,7 +1219,7 @@
         _rafLast   = performance.now();
         var _rafLoop = function () {
           var now = performance.now();
-          _rafTimes.push(now - _rafLast);
+          if (_rafTimes.length < 2000) { _rafTimes.push(now - _rafLast); }
           _rafLast = now;
           if (_rafActive) { requestAnimationFrame(_rafLoop); }
         };
