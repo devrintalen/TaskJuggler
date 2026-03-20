@@ -24,7 +24,7 @@ const doTrace  = args.includes('--trace');
 const ppdIdx   = args.indexOf('--ppd');
 const targetPpd = ppdIdx >= 0 ? parseFloat(args[ppdIdx + 1]) : 21.646;
 
-const htmlArg  = args.find(a => !a.startsWith('--') && args.indexOf(a) !== ppdIdx + 1)
+const htmlArg  = args.find(a => !a.startsWith('--') && (ppdIdx < 0 || args.indexOf(a) !== ppdIdx + 1))
                || 'ResourceGraph.html';
 const htmlFile = path.resolve(htmlArg);
 const traceOut = htmlFile.replace(/\.html$/i, '') + '-pan-trace.json';
@@ -68,28 +68,21 @@ function printTable(title, rows) {
   });
 }
 
-async function runPanSweep(page, label, dx, ticks, cy, intervalMs) {
+async function runPanSweep(page, label, dx, ticks, intervalMs) {
   console.log(`  Running ${label} (${ticks} ticks @ ~${intervalMs}ms apart)...`);
   const t0 = Date.now();
   await page.evaluate(
-    ({ ticks, intervalMs, dx, cy }) => new Promise(resolve => {
-      const svg = document.querySelector('#tj-gantt-container svg');
+    ({ ticks, intervalMs, dx }) => new Promise(resolve => {
       let i = 0;
       const step = () => {
         if (i >= ticks) { resolve(); return; }
-        if (svg) {
-          const rect = svg.getBoundingClientRect();
-          const x0   = rect.left + rect.width / 2;
-          svg.dispatchEvent(new PointerEvent('pointerdown', { clientX: x0,      clientY: cy, bubbles: true, isPrimary: true }));
-          svg.dispatchEvent(new PointerEvent('pointermove', { clientX: x0 + dx, clientY: cy, bubbles: true, isPrimary: true }));
-          svg.dispatchEvent(new PointerEvent('pointerup',   { clientX: x0 + dx, clientY: cy, bubbles: true, isPrimary: true }));
-        }
+        window.tjGanttPan(dx);
         i++;
         setTimeout(step, intervalMs);
       };
       step();
     }),
-    { ticks, intervalMs, dx, cy }
+    { ticks, intervalMs, dx }
   );
   console.log(`    done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
@@ -141,10 +134,17 @@ async function runPanSweep(page, label, dx, ticks, cy, intervalMs) {
     }
     await new Promise(r => setTimeout(r, 300));  // let zoom render settle
 
-    /* ── Pan sweep: 120 left + 120 right at the target zoom ── */
-    const cy = 400;
-    await runPanSweep(page, 'pan sweep (left)',  -200, 120, cy, 16);
-    await runPanSweep(page, 'pan sweep (right)',  200, 120, cy, 16);
+    /* ── Pan sweep: 120 left + 120 right at the target zoom, 5 passes ── */
+    await runPanSweep(page, 'pan sweep (left)',  -200, 120, 16);
+    await runPanSweep(page, 'pan sweep (right)',  200, 120, 16);
+    await runPanSweep(page, 'pan sweep (left)',  -200, 120, 16);
+    await runPanSweep(page, 'pan sweep (right)',  200, 120, 16);
+    await runPanSweep(page, 'pan sweep (left)',  -200, 120, 16);
+    await runPanSweep(page, 'pan sweep (right)',  200, 120, 16);
+    await runPanSweep(page, 'pan sweep (left)',  -200, 120, 16);
+    await runPanSweep(page, 'pan sweep (right)',  200, 120, 16);
+    await runPanSweep(page, 'pan sweep (left)',  -200, 120, 16);
+    await runPanSweep(page, 'pan sweep (right)',  200, 120, 16);
 
     /* Wait for any in-flight RAFs to settle. */
     await new Promise(r => setTimeout(r, 400));

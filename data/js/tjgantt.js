@@ -1238,6 +1238,11 @@
       var k = targetPpd / basePpd;
       d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(k));
     };
+
+    window.tjGanttPan = function (dx) {
+      var t = d3.zoomTransform(svg);
+      d3.select(svg).call(zoom.transform, d3.zoomIdentity.translate(t.x + dx, 0).scale(t.k));
+    };
   }
 
   render(currentXScale);
