@@ -171,6 +171,12 @@
   });
 
 
+  /* Index of task rows by id — used by renderLoadStack to look up parent tasks. */
+  var taskRowById = {};
+  rows.forEach(function (r) {
+    if ((r.rowType || 'task') === 'task') { taskRowById[r.id] = r; }
+  });
+
   var projectStart = project.start ? projectMidnight(project.start) : (rows[0] && rows[0]._start) || new Date();
   var projectEnd   = project.end   ? projectMidnight(project.end)   : new Date(projectStart.getTime() + 86400000 * 30);
   var nowDate      = project.now   ? projectMidnight(project.now)   : new Date();
@@ -183,12 +189,14 @@
   }
 
   /* Background colour for a row, distinguishing task rows (blue) from resource
-   * rows (warm peach) to match .taskcell1/2 and .resourcecell1/2 in CSS. */
+   * rows (warm peach) to match .taskcell1/2 and .resourcecell1/2 in CSS.
+   * nested-task rows are tasks visually, so they use task colours. */
   function rowBgColor(row, i) {
-    if (isResourceRow(row)) {
-      return (i % 2 === 0) ? C.resourceRowEven : C.resourceRowOdd;
+    var rt = row.rowType;
+    if (rt === 'nested-task' || rt === 'task' || rt === undefined) {
+      return (i % 2 === 0) ? C.rowEven : C.rowOdd;
     }
-    return (i % 2 === 0) ? C.rowEven : C.rowOdd;
+    return (i % 2 === 0) ? C.resourceRowEven : C.resourceRowOdd;
   }
 
   function rowVisualHeight(row) {
@@ -301,7 +309,8 @@
             nameDiv.appendChild(spacer);
           }
           if (iconBase) {
-            var iconName = isTask
+            var isTaskLike = isTask || rowType === 'nested-task';
+            var iconName = isTaskLike
               ? (row._isContainer ? 'taskgroup' : 'task')
               : (row.isLeaf ? 'resource' : 'resourcegroup');
             var img = document.createElement('img');
@@ -997,11 +1006,33 @@
     var visStartS = xScale.invert(0).getTime() / 1000;
     var visEndS   = xScale.invert(chartWidth).getTime() / 1000;
 
-    var buckets = mergeBuckets(ld.buckets, lod.bucketDays);
+    /* At quarter/year LOD, nested-resource rows collapse to a single bar
+     * anchored to the parent task's start/end rather than bucket boundaries,
+     * so the bar edges stay stable as the user crosses the LOD threshold. */
+    var buckets;
+    if (row.rowType === 'nested-resource' && lod.bucketDays >= 30) {
+      var parentTask = row.scopeId && taskRowById[row.scopeId];
+      if (parentTask && parentTask._start && parentTask._end) {
+        var nCats = (ld.buckets[0] || []).length - 1;
+        var sums  = new Array(nCats).fill(0);
+        ld.buckets.forEach(function (b) {
+          for (var ci = 0; ci < nCats; ci++) { sums[ci] += Math.max(0, b[ci + 1] || 0); }
+        });
+        var taskStartS = parentTask._start.getTime() / 1000;
+        var taskEndS   = parentTask._end.getTime()   / 1000;
+        var synthetic  = [taskStartS].concat(sums);
+        synthetic._taskEndS = taskEndS;
+        buckets = [synthetic];
+      }
+    }
+    if (!buckets) { buckets = mergeBuckets(ld.buckets, lod.bucketDays); }
+
     for (var bi = 0; bi < buckets.length; bi++) {
       var bucket    = buckets[bi];
       var bucketS   = bucket[0];          /* Unix seconds at bucket start */
-      var durationS = (bucket._days || 1) * 86400;
+      var durationS = bucket._taskEndS
+                      ? (bucket._taskEndS - bucketS)
+                      : (bucket._days || 1) * 86400;
       if (bucketS + durationS <= visStartS) { continue; }   /* entirely left of view */
       if (bucketS             >= visEndS)   { break; }       /* entirely right of view */
 
@@ -1101,7 +1132,7 @@
   }
 
   /* ── Debug overlay ── */
-  var DEBUG_OVERLAY = false;
+  var DEBUG_OVERLAY = true;
 
   var dbgDiv = (function () {
     var d = document.createElement('div');
