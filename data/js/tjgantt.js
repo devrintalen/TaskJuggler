@@ -882,26 +882,61 @@
     });
   }
 
-  /* Merge consecutive groups of n per-day buckets into super-buckets.
-   * Values are summed; proportional ratios are preserved.
-   * The merged entry carries a _days field for correct pixel-width computation. */
+  /* Return the Unix timestamp (seconds) of the Monday that starts the
+   * calendar week containing bucketUnixS, in the project timezone. */
+  function mondayOf(bucketUnixS) {
+    var localDay = Math.floor((bucketUnixS * 1000 + tzOffsetMs) / 86400000);
+    var dow      = ((localDay % 7) + 7 + 3) % 7;  // 0=Mon…6=Sun (epoch Thu = 3)
+    return ((localDay - dow) * 86400000 - tzOffsetMs) / 1000;
+  }
+
+  /* Merge per-day buckets into super-buckets for lower-detail LODs.
+   * Values are summed; the merged entry carries a _days field for correct
+   * pixel-width computation.
+   *
+   * n=7  → calendar-week-aligned groups (Monday boundaries, project timezone)
+   * else → count-based groups of n consecutive buckets */
   function mergeBuckets(buckets, n) {
     if (n <= 1 || !buckets.length) { return buckets; }
     var nCats  = buckets[0].length - 1;
     var merged = [];
-    var i      = 0;
-    while (i < buckets.length) {
-      var groupStart = buckets[i][0];
-      var sums       = new Array(nCats).fill(0);
-      var count      = 0;
-      while (count < n && i < buckets.length) {
-        var b = buckets[i];
-        for (var ci = 0; ci < nCats; ci++) { sums[ci] += Math.max(0, b[ci + 1] || 0); }
-        i++; count++;
+
+    if (n === 7) {
+      /* Group by calendar week: key is the Monday timestamp of each bucket. */
+      var groups = Object.create(null);
+      var order  = [];
+      buckets.forEach(function (b) {
+        var key = mondayOf(b[0]);
+        if (!groups[key]) {
+          groups[key] = { start: b[0], sums: new Array(nCats).fill(0), count: 0 };
+          order.push(key);
+        }
+        var g = groups[key];
+        for (var ci = 0; ci < nCats; ci++) { g.sums[ci] += Math.max(0, b[ci + 1] || 0); }
+        g.count++;
+      });
+      order.forEach(function (key) {
+        var g     = groups[key];
+        var entry = [g.start].concat(g.sums);
+        entry._days = g.count;
+        merged.push(entry);
+      });
+    } else {
+      /* Count-based grouping for year/quarter scales. */
+      var i = 0;
+      while (i < buckets.length) {
+        var groupStart = buckets[i][0];
+        var sums       = new Array(nCats).fill(0);
+        var count      = 0;
+        while (count < n && i < buckets.length) {
+          var b = buckets[i];
+          for (var ci = 0; ci < nCats; ci++) { sums[ci] += Math.max(0, b[ci + 1] || 0); }
+          i++; count++;
+        }
+        var entry = [groupStart].concat(sums);
+        entry._days = count;
+        merged.push(entry);
       }
-      var entry = [groupStart].concat(sums);
-      entry._days = count;
-      merged.push(entry);
     }
     return merged;
   }
