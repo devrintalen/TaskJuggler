@@ -859,11 +859,8 @@
           var g = makeG('tj-task', gBars);
           if (sc.milestone) {
             renderMilestone(g, xScale, tStart, yCenter);
-          } else if (row._isContainer && s === 0) {
-            renderContainer(g, xScale, tStart, tEnd, yCenter);
           } else if (row._isContainer) {
-            /* additional scenarios for containers: simple bar */
-            renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
+            renderContainer(g, xScale, tStart, tEnd, yCenter);
           } else {
             renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
           }
