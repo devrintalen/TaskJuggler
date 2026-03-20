@@ -57,6 +57,12 @@
   var HDR_H = 40;   // two-row header height (20px each)
   var wdayFmt = null;  // initialised after projectTz is known (below)
 
+  /* ── LOD thresholds (pixels per day) ── */
+  var LOD_PPD_YEAR    = 0.2;   // below → year scale
+  var LOD_PPD_QUARTER = 2;     // below → quarter scale
+  var LOD_PPD_MONTH   = 20;    // below → month scale
+  var LOD_PPD_WEEK    = 120;   // below → week scale  (≥ → day scale)
+
   function fmtDate(s) {
     if (!s) { return ''; }
     return wdayFmt.format(projectMidnight(s)) + ' ' + s;
@@ -537,25 +543,30 @@
   function computeLod(xScale) {
     var ppd = computePpd(xScale);
 
-    if (ppd < 0.2) {
+    if (ppd < LOD_PPD_YEAR) {
+	/* YEAR */
       return { ppd: ppd, bucketDays: 365, mergeTimeoffPx: 4, showTimeoff: false, showArrows: false,
                large: d3.utcYear.every(10),  largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcYear.every(1),   smallFmt: tzFmt({ year: 'numeric' }) };
-    } else if (ppd < 2) {
+    } else if (ppd < LOD_PPD_QUARTER) {
+	/* QUARTER */
       return { ppd: ppd, bucketDays: 30,  mergeTimeoffPx: 4, showTimeoff: false, showArrows: false,
                large: d3.utcYear.every(1),   largeFmt: tzFmt({ year: 'numeric' }),
                small: d3.utcMonth.every(3),  smallFmt: tzFmt({ month: 'short' }) };
-    } else if (ppd < 15) {
-      return { ppd: ppd, bucketDays: 7,   mergeTimeoffPx: 2, showTimeoff: true,  showArrows: true,
+    } else if (ppd < LOD_PPD_MONTH) {
+	/* MONTH */
+      return { ppd: ppd, bucketDays: 7,   mergeTimeoffPx: 3, showTimeoff: true,  showArrows: true,
                large: d3.utcMonth.every(1),
                largeFmt: tzFmtParts({ month: 'short', year: 'numeric' }, ['month', 'year']),
                small: d3.utcMonday.every(1), smallFmt: tzFmt({ day: 'numeric' }) };
-    } else if (ppd < 60) {
+    } else if (ppd < LOD_PPD_WEEK) {
+	/* WEEK */
       return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 1, showTimeoff: true,  showArrows: true,
                large: d3.utcMonday.every(1),
                largeFmt: tzFmtParts({ month: 'short', day: 'numeric' }, ['month', 'day']),
                small: d3.utcDay.every(1),    smallFmt: tzFmt({ day: 'numeric' }) };
     } else {
+	/* DAY */
       return { ppd: ppd, bucketDays: 1,   mergeTimeoffPx: 0, showTimeoff: true,  showArrows: true,
                large: d3.utcDay.every(1),
                largeFmt: tzFmtParts({ weekday: 'short', day: 'numeric', month: 'short' },
@@ -945,9 +956,56 @@
     });
   }
 
+  /* ── Debug overlay ── */
+  var DEBUG_OVERLAY = false;
+
+  var dbgDiv = (function () {
+    var d = document.createElement('div');
+    d.id = 'tj-debug-overlay';
+    d.style.cssText = [
+      'position:fixed', 'bottom:8px', 'right:8px', 'z-index:9999',
+      'background:rgba(0,0,0,0.65)', 'color:#0f0', 'font:12px/1.6 monospace',
+      'padding:4px 8px', 'border-radius:4px', 'pointer-events:none',
+      'white-space:pre'
+    ].join(';');
+    document.body.appendChild(d);
+    return d;
+  })();
+
+  var LOD_LABELS = [
+    { threshold: LOD_PPD_YEAR,    label: 'year'    },
+    { threshold: LOD_PPD_QUARTER, label: 'quarter' },
+    { threshold: LOD_PPD_MONTH,   label: 'month'   },
+    { threshold: LOD_PPD_WEEK,    label: 'week'    },
+    { threshold: Infinity,        label: 'day'     }
+  ];
+
+  function lodLabel(ppd) {
+    for (var i = 0; i < LOD_LABELS.length; i++) {
+      if (ppd < LOD_LABELS[i].threshold) return LOD_LABELS[i].label;
+    }
+    return 'day';
+  }
+
+  function updateDebug(lod) {
+    if (!DEBUG_OVERLAY) { dbgDiv.style.display = 'none'; return; }
+    dbgDiv.style.display = '';
+    var ppd = lod.ppd;
+    var label = lodLabel(ppd);
+    var thresholds = [LOD_PPD_YEAR, LOD_PPD_QUARTER, LOD_PPD_MONTH, LOD_PPD_WEEK];
+    var lines = ['ppd: ' + ppd.toFixed(3) + '  [' + label + ']'];
+    thresholds.forEach(function (t) {
+      var dist = t - ppd;
+      var marker = Math.abs(dist) < t * 0.1 ? ' ←near' : '';
+      lines.push('  threshold ' + t + ': ' + (dist > 0 ? '+' : '') + dist.toFixed(3) + marker);
+    });
+    dbgDiv.textContent = lines.join('\n');
+  }
+
   /* ── Main render ── */
   function render(xScale) {
     var lod = computeLod(xScale);
+    updateDebug(lod);
     renderHeader(xScale, lod);
     renderStripes(xScale);
     if (lod.showTimeoff) { renderTimeOff(xScale, lod); } else { clearG(gTimeOff); }
