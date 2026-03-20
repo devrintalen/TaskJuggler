@@ -504,7 +504,9 @@ class TaskJuggler
       q.attributeId = attr
       q.scenarioIdx = sc_idx
       q.process
-      s = q.to_s
+      # Mirror genStandardCell: prefer to_rti (gives names for resource-list
+      # attributes like managers/responsible/resources) over to_s (gives IDs).
+      s = ((rti = q.to_rti) ? rti.to_s : q.to_s)
       s.empty? ? nil : s
     rescue
       nil
