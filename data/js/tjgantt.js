@@ -63,7 +63,8 @@
   var LOD_PPD_MONTH   = 20;    // below → month scale
   var LOD_PPD_WEEK    = 120;   // below → week scale  (≥ → day scale)
 
-  var LOD_FADE_MS = 200;       // duration of show/hide opacity transitions
+  var LOD_FADE_MS         = 200;                              // duration of show/hide opacity transitions
+  var LOD_FADE_TRANSITION = 'opacity ' + LOD_FADE_MS + 'ms'; // pre-built CSS transition string
 
   function fmtDate(s) {
     if (!s) { return ''; }
@@ -518,7 +519,7 @@
               g.style.transition = 'none';
               g.style.opacity = '0';
               g.getBoundingClientRect();  /* force reflow before transition */
-              g.style.transition = 'opacity ' + LOD_FADE_MS + 'ms';
+              g.style.transition = LOD_FADE_TRANSITION;
               g.style.opacity = '1';
             }
           }
@@ -528,9 +529,9 @@
             /* Transitioning shown → hidden (or initial render with show=false). */
             if (initial) {
               g.style.opacity = '0';
-              clearG(g);
+              if (!opts.noClear) { clearG(g); }
             } else {
-              g.style.transition = 'opacity ' + LOD_FADE_MS + 'ms';
+              g.style.transition = LOD_FADE_TRANSITION;
               g.style.opacity = '0';
               timer = setTimeout(function () { clearG(g); timer = null; }, LOD_FADE_MS);
             }
