@@ -130,7 +130,8 @@
 
   var rows     = data.rows;
   var project  = data.project;
-  var sc0      = (project.scenarios || [])[0] || 'plan';
+  var scenarios = project.scenarios || ['plan'];
+  var sc0       = scenarios[0];
   var iconBase = project.iconBase || null;   // e.g. "icons/" or null
 
   /* ── Project timezone ── */
