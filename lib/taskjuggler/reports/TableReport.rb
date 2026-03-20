@@ -179,7 +179,11 @@ class TaskJuggler
       requested_cols = col_defs.map do |col|
         align_sym = TableReport.alignment(col.id, nil)
         align_str = (align_sym == :right) ? 'right' : 'left'
-        { 'id' => col.id, 'title' => col.title, 'align' => align_str }
+        # start/end are scenario-specific but not in @@propertiesById
+        sc_specific = TableReport.scenarioSpecific?(col.id) ||
+                      %w[start end].include?(col.id)
+        { 'id' => col.id, 'title' => col.title, 'align' => align_str,
+          'scenarioSpecific' => sc_specific }
       end
 
       has_weekly = (a('columns') || []).any? { |c| c.id == 'weekly' }

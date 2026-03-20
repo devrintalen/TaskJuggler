@@ -268,68 +268,78 @@
     tr.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;' +
                        (isTask && row._isContainer ? 'font-weight:bold;' : '');
 
-    cols.forEach(function (col) {
-      var td = document.createElement('td');
-      td.style.cssText =
-        'padding:1px 4px;text-align:' + col.align + ';border:1px solid #9a9a9a;' +
-        'vertical-align:middle;';
-      if (span > 1) { td.rowSpan = span; }
-
-      if (col.id === 'name') {
-        /* Indented icon + name, mirroring the static HTML's 8px-per-level spacer. */
-        var indentPx;
-        if (isTask) {
-          indentPx = (row.level || 0) * 8;
-        } else if (row.scopeId !== undefined) {
-          /* Nested resource/task: indent = scopeTask.level + 1 level */
-          var scopeLevel = taskLevelMap[row.scopeId];
-          indentPx = ((scopeLevel !== undefined ? scopeLevel : 0) + 1) * 8;
-        } else {
-          indentPx = (row.level || 0) * 8;
-        }
-
-        var nameDiv = document.createElement('div');
-        nameDiv.style.cssText =
-          'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
-        if (indentPx > 0) {
-          var spacer = document.createElement('span');
-          spacer.style.cssText = 'display:inline-block;flex-shrink:0;width:' + indentPx + 'px;';
-          nameDiv.appendChild(spacer);
-        }
-        if (iconBase) {
-          var iconName = isTask
-            ? (row._isContainer ? 'taskgroup' : 'task')
-            : (row.isLeaf ? 'resource' : 'resourcegroup');
-          var img = document.createElement('img');
-          img.src = iconBase + iconName + '.png';
-          img.style.cssText = 'flex-shrink:0;margin-right:3px;';
-          nameDiv.appendChild(img);
-        }
-        var nameSpan = document.createElement('span');
-        nameSpan.style.cssText = 'overflow:hidden;white-space:nowrap;';
-        nameSpan.textContent = row.name || '';
-        nameDiv.appendChild(nameSpan);
-        td.appendChild(nameDiv);
-      } else {
-        var text = getCellText(row, col, sc);
-        td.textContent = text;
-        td.title       = text;
-        /* BSI column: match static HTML's 16px left spacer for nested rows */
-        if (col.id === 'bsi' && row.scopeId !== undefined) {
-          td.style.paddingLeft = '20px'; /* 4px base + 16px indent */
-        }
-      }
-
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-
-    /* Extra empty TRs for additional scenario sub-rows (span > 1) */
+    /* Build the extra scenario TRs first so we can fill them below. */
+    var scenarioTrs = [tr];
     for (var s = 1; s < span; s++) {
       var tr2 = document.createElement('tr');
       tr2.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;';
-      tbody.appendChild(tr2);
+      scenarioTrs.push(tr2);
     }
+
+    cols.forEach(function (col) {
+      /* Non-scenario-specific columns span all rows; scenario-specific ones
+       * get a separate cell in each scenario TR. */
+      var scSpecific = isTask && col.scenarioSpecific;
+      var scNames    = scSpecific ? scenarios : [sc0];
+
+      scNames.forEach(function (scName, si) {
+        var scData = isTask ? ((row.scenarios || {})[scName] || {}) : sc;
+        var targetTr = scenarioTrs[si] || tr;
+
+        var td = document.createElement('td');
+        td.style.cssText =
+          'padding:1px 4px;text-align:' + col.align + ';border:1px solid #9a9a9a;' +
+          'vertical-align:middle;';
+        if (!scSpecific && span > 1) { td.rowSpan = span; }
+
+        if (col.id === 'name' && si === 0) {
+          /* Indented icon + name, mirroring the static HTML's 8px-per-level spacer.
+           * Only rendered once (si === 0); rowSpan covers subsequent rows. */
+          var indentPx;
+          if (isTask) {
+            indentPx = (row.level || 0) * 8;
+          } else if (row.scopeId !== undefined) {
+            var scopeLevel = taskLevelMap[row.scopeId];
+            indentPx = ((scopeLevel !== undefined ? scopeLevel : 0) + 1) * 8;
+          } else {
+            indentPx = (row.level || 0) * 8;
+          }
+
+          var nameDiv = document.createElement('div');
+          nameDiv.style.cssText =
+            'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
+          if (indentPx > 0) {
+            var spacer = document.createElement('span');
+            spacer.style.cssText = 'display:inline-block;flex-shrink:0;width:' + indentPx + 'px;';
+            nameDiv.appendChild(spacer);
+          }
+          if (iconBase) {
+            var iconName = isTask
+              ? (row._isContainer ? 'taskgroup' : 'task')
+              : (row.isLeaf ? 'resource' : 'resourcegroup');
+            var img = document.createElement('img');
+            img.src = iconBase + iconName + '.png';
+            img.style.cssText = 'flex-shrink:0;margin-right:3px;';
+            nameDiv.appendChild(img);
+          }
+          var nameSpan = document.createElement('span');
+          nameSpan.style.cssText = 'overflow:hidden;white-space:nowrap;';
+          nameSpan.textContent = row.name || '';
+          nameDiv.appendChild(nameSpan);
+          td.appendChild(nameDiv);
+        } else if (col.id !== 'name') {
+          var text = getCellText(row, col, scData);
+          td.textContent = text;
+          td.title       = text;
+          if (col.id === 'bsi' && row.scopeId !== undefined) {
+            td.style.paddingLeft = '20px'; /* 4px base + 16px static-HTML indent */
+          }
+        }
+
+        targetTr.appendChild(td);
+      });
+    });
+    scenarioTrs.forEach(function (t) { tbody.appendChild(t); });
   });
 
   /* Return the text for a left-panel cell given the row, column and primary

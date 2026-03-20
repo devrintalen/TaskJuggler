@@ -222,7 +222,10 @@ class TaskJuggler
         line_data = gantt_line.to_htmljs
         timeoff   = line_data['timeoff'] || []
         bar       = line_data['bar']
-        complete  = bar ? bar['complete'] : nil
+        # bar['complete'] is nil for milestones/containers (no progress bar),
+        # so fall back to the query system in that case.
+        complete  = (bar && !bar['complete'].nil?) ?
+                    bar['complete'] : htmljs_query_num(bq, task, 'complete', idx)
       else
         timeoff  = htmljs_collect_timeoff(task, idx, chart_start, chart_end)
         complete = htmljs_query_num(bq, task, 'complete', idx)
