@@ -430,7 +430,7 @@
   var rightHeader = document.createElement('div');
   rightHeader.style.cssText =
     'flex-shrink:0;overflow:hidden;height:' + HDR_H + 'px;' +
-    'border-bottom:1px solid #7a7a7a;';
+    'border-bottom:1px solid #7a7a7a;box-sizing:border-box;';
   rightColumn.appendChild(rightHeader);
 
   /* ── SVG ── */
