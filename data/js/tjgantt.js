@@ -1342,13 +1342,19 @@
     };
   }
 
-  /* Apply initialScale from project metadata (e.g. 'week' for weekly column).
-   * We set the zoom transform rather than shrinking baseXScale, so that
-   * scaleExtent stays consistent with all other charts. */
-  if (project.initialScale === 'week') {
+  /* Apply initialScale from project metadata (set when a daily/weekly/monthly/
+   * quarterly/yearly column is present).  We set the zoom transform rather than
+   * shrinking baseXScale so that scaleExtent stays consistent across all charts. */
+  var _SCALE_MS = {
+    'day':     86400 * 1000,
+    'week':    7  * 86400 * 1000,
+    'month':   31 * 86400 * 1000,
+    'quarter': 91 * 86400 * 1000,
+    'year':   365 * 86400 * 1000
+  };
+  if (project.initialScale && _SCALE_MS[project.initialScale]) {
     var domainMs    = projectEnd.getTime() - projectStart.getTime();
-    var weekMs      = 7 * 86400 * 1000;
-    var scaleFactor = domainMs / weekMs;
+    var scaleFactor = domainMs / _SCALE_MS[project.initialScale];
     /* zoom.transform fires the zoom handler synchronously, updating currentXScale */
     d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(scaleFactor));
   }

@@ -186,7 +186,9 @@ class TaskJuggler
           'scenarioSpecific' => sc_specific }
       end
 
-      has_weekly = (a('columns') || []).any? { |c| c.id == 'weekly' }
+      scale_map  = { 'daily' => 'day', 'weekly' => 'week', 'monthly' => 'month',
+                     'quarterly' => 'quarter', 'yearly' => 'year' }
+      scale_col  = (a('columns') || []).find { |c| scale_map.key?(c.id) }
       icon_base  = a('selfcontained') ? nil : (a('auxdir').to_s + 'icons/')
 
       project_data = {
@@ -199,7 +201,7 @@ class TaskJuggler
         'tz'           => TjTime.timeZone,
         'tzOffset'     => (@project['start'] ?
                            Time.at(@project['start'].to_i).localtime.utc_offset : 0),
-        'initialScale' => has_weekly ? 'week' : nil
+        'initialScale' => scale_col ? scale_map[scale_col.id] : nil
       }
 
       rows_json = @table.to_htmljs
