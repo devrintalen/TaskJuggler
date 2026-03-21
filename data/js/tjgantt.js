@@ -53,9 +53,10 @@
   };
 
   /* ── Layout ── */
-  var ROW_H = 20;   // pixels per task or resource row (matches Ruby ReportTableLine)
-  var HDR_H = 40;   // two-row header height (20px each)
-  var wdayFmt = null;  // initialised after projectTz is known (below)
+  var ROW_H     = 20;   // pixels per task or resource row (matches Ruby ReportTableLine)
+  var HDR_H     = 40;   // two-row header height (20px each)
+  var INDENT_PX = 8;    // pixels per indentation level in the left-panel name column
+  var wdayFmt   = null; // initialised after projectTz is known (below)
 
   /* ── LOD thresholds (pixels per day) ── */
   var LOD_PPD_YEAR    = 0.2;   // below → year scale
@@ -70,6 +71,9 @@
    * shift the pre-rendered content without missing elements at the edges. */
   var RENDER_MARGIN = 400;
 
+  /* Format a YYYY-MM-DD date string for display, prefixed with the abbreviated
+   * weekday name in the project timezone (e.g. "Wed 2002-01-16").
+   * Returns an empty string if s is falsy. */
   function fmtDate(s) {
     if (!s) { return ''; }
     return wdayFmt.format(projectMidnight(s)) + ' ' + s;
@@ -149,6 +153,10 @@
   /* Cached tooltip dimensions — read once per show, not on every mousemove. */
   var _ttipW = 0, _ttipH = 0;
 
+  /* Populate and display the shared tooltip with the given body HTML and title.
+   * html  — innerHTML for the body panel (Ruby-generated tooltip markup).
+   * title — plain text shown in the grey header bar (usually the task/resource name).
+   * e     — the triggering MouseEvent, used to set the initial position. */
   function showTooltip(html, title, e) {
     if (!html) { return; }
     _ttipTitle.textContent = title || '';
@@ -159,6 +167,9 @@
     positionTooltip(e);
   }
 
+  /* Position the tooltip 16px below-right of the cursor, clamping to keep it
+   * within the viewport with an 8px margin on each edge.
+   * e — the current MouseEvent. */
   function positionTooltip(e) {
     var x = e.clientX + 16;
     var y = e.clientY + 16;
@@ -169,10 +180,19 @@
     tooltipDiv.style.top  = y + 'px';
   }
 
+  /* Hide the tooltip unconditionally. Called by the X button and the
+   * document-level click-outside handler after clearing _ttipSticky. */
   function hideTooltip() {
     tooltipDiv.style.display = 'none';
   }
 
+  /* Attach a click-activated sticky tooltip to an SVG element.
+   * el    — the SVG <g> to listen on.
+   * html  — body HTML for showTooltip (passed through unchanged).
+   * title — header text for showTooltip (usually row.name).
+   * The first click opens the tooltip and makes it sticky; subsequent clicks
+   * on the same element are ignored until the user closes it via X or an
+   * outside click. */
   function attachTooltip(el, html, title) {
     if (!html) { return; }
     el.style.cursor = 'help';
@@ -249,6 +269,8 @@
     return (i % 2 === 0) ? C.resourceRowEven : C.resourceRowOdd;
   }
 
+  /* Return the total pixel height of a row. Multi-scenario task rows use
+   * rowSpan > 1, stacking one ROW_H band per scenario vertically. */
   function rowVisualHeight(row) {
     return ROW_H * ((row.rowSpan || 1));
   }
@@ -349,7 +371,7 @@
         if (col.id === 'name' && si === 0) {
           /* Use indentation from Ruby (matches static HTML treeMode logic).
            * Only rendered once (si === 0); rowSpan covers subsequent rows. */
-          var indentPx = (row.indentation || 0) * 8;
+          var indentPx = (row.indentation || 0) * INDENT_PX;
 
           var nameDiv = document.createElement('div');
           nameDiv.style.cssText =
@@ -472,6 +494,10 @@
   defs.appendChild(marker);
 
   /* ── Layer groups ── */
+  /* Create an SVG <g> element, set its class, append it to parent (defaulting
+   * to the scrollable body svg), and return it.
+   * cls    — CSS class name string.
+   * parent — optional parent SVG element; defaults to the body svg. */
   function makeG(cls, parent) {
     var g = document.createElementNS(svgNS, 'g');
     g.setAttribute('class', cls);
@@ -498,6 +524,8 @@
   var fadeArrows  = makeFadeable(gArrows);
 
   /* ── D3 scale and zoom ── */
+  /* Return the current pixel width of the right-column chart area, clamped to
+   * a minimum of 200px to avoid degenerate scales before layout settles. */
   function getChartWidth() {
     return Math.max(200, rightColumn.getBoundingClientRect().width || 800);
   }
@@ -554,6 +582,11 @@
   });
 
   /* ───────────────────────── Render helpers ───────────────────────────── */
+  /* Create an SVG element of the given tag, set all key/value pairs in attrs,
+   * append to parent if provided, and return the element.
+   * tag    — SVG element tag name (e.g. 'rect', 'line', 'path').
+   * parent — optional parent node to append to.
+   * attrs  — optional plain object of attribute name → value pairs. */
   function svgEl(tag, parent, attrs) {
     var el = document.createElementNS(svgNS, tag);
     if (attrs) {
@@ -563,6 +596,8 @@
     return el;
   }
 
+  /* Remove all child nodes from an SVG <g> element.
+   * g — the SVG group to clear. */
   function clearG(g) {
     while (g.firstChild) { g.removeChild(g.firstChild); }
   }
@@ -662,6 +697,9 @@
     });
   }
 
+  /* Compute the current zoom ratio in pixels per day from a D3 UTC scale.
+   * xScale — a d3.scaleUtc() instance with a Date domain and pixel range.
+   * Returns a positive number; larger values mean more zoomed in. */
   function computePpd(xScale) {
     var domainMs = xScale.domain()[1] - xScale.domain()[0];
     var rangeW   = xScale.range()[1]  - xScale.range()[0];
@@ -764,6 +802,10 @@
   }
 
   var _hdrBgRectW = -1;
+  /* Render the two-row chart header (large ticks on top, small ticks below).
+   * Updates the background rect width whenever the chart is resized.
+   * xScale — current D3 UTC scale.
+   * lod    — LOD descriptor from computeLod(). */
   function renderHeader(xScale, lod) {
     var w = getChartWidth();
 
@@ -779,6 +821,10 @@
   }
 
   /* ── Row stripes ── */
+  /* Render alternating background stripe rectangles and horizontal row-divider
+   * lines for every row. Skips work entirely when the chart width has not changed
+   * since the last call (width is tracked by _stripesW).
+   * xScale — current D3 UTC scale (used only to read chart width). */
   function renderStripes(xScale) {
     var w = getChartWidth();
     if (w === _stripesW) { return; }
@@ -870,6 +916,10 @@
   }
 
   /* ── Now line ── */
+  /* Render a single red vertical line at today's date (nowDate). The line is
+   * omitted when it falls outside the RENDER_MARGIN-extended viewport so it
+   * does not interfere with the pan fast-path transform.
+   * xScale — current D3 UTC scale. */
   function renderNowLine(xScale) {
     clearG(gNow);
     var x = xScale(nowDate);
@@ -881,6 +931,11 @@
   }
 
   /* ── Task bars + load stacks ── */
+  /* Clear gBars and redraw all rows. Task rows render one bar per scenario
+   * (stacked vertically by rowSpan); resource/nested rows render a load-stack.
+   * Viewport culling skips bars entirely outside RENDER_MARGIN.
+   * xScale — current D3 UTC scale.
+   * lod    — LOD descriptor from computeLod(), forwarded to renderLoadStack. */
   function renderBars(xScale, lod) {
     clearG(gBars);
     var w = getChartWidth();
@@ -927,6 +982,14 @@
     });
   }
 
+  /* Render a normal task bar into g: a dark frame rect, a blue inner rect, and
+   * an optional dark progress rect covering the completed percentage.
+   * g        — target SVG <g> to draw into.
+   * xScale   — current D3 UTC scale.
+   * tStart   — task start as a Date object.
+   * tEnd     — task end as a Date object.
+   * yCenter  — vertical center Y coordinate in pixels.
+   * complete — completion percentage (0–100). */
   function renderTaskBar(g, xScale, tStart, tEnd, yCenter, complete) {
     var x  = xScale(tStart);
     var x2 = xScale(tEnd);
@@ -946,6 +1009,14 @@
     }
   }
 
+  /* Render a container/summary task bar into g: a dark horizontal bar spanning
+   * the full duration with downward-pointing jag (triangle) markers at each end,
+   * matching the static HTML GanttContainer rendering.
+   * g       — target SVG <g>.
+   * xScale  — current D3 UTC scale.
+   * tStart  — container start as a Date object.
+   * tEnd    — container end as a Date object.
+   * yCenter — vertical center Y coordinate in pixels. */
   function renderContainer(g, xScale, tStart, tEnd, yCenter) {
     var x   = xScale(tStart);
     var x2  = xScale(tEnd);
@@ -967,6 +1038,11 @@
     });
   }
 
+  /* Render a milestone as a diamond (rotated square polygon) centered on tStart.
+   * g       — target SVG <g>.
+   * xScale  — current D3 UTC scale.
+   * tStart  — milestone date as a Date object.
+   * yCenter — vertical center Y coordinate in pixels. */
   function renderMilestone(g, xScale, tStart, yCenter) {
     var cx = xScale(tStart);
     var r  = MS_HALF;
@@ -1128,6 +1204,12 @@
   }
 
   /* ── Dependency arrows ── */
+  /* Render SVG path dependency arrows for all task rows in the primary scenario.
+   * Each arrow runs from the end of the predecessor to the start of the successor.
+   * Inherited dependencies (shared with a parent task) are skipped to avoid clutter.
+   * Arrow routing: if there is horizontal room, a simple three-segment path is used;
+   * otherwise a stepped detour routes around the overlapping bars.
+   * xScale — current D3 UTC scale. */
   function renderArrows(xScale) {
     clearG(gArrows);
 
@@ -1181,59 +1263,13 @@
     });
   }
 
-  /* ── Debug overlay ── */
-  var DEBUG_OVERLAY = false;
-
-  var dbgDiv = (function () {
-    var d = document.createElement('div');
-    d.id = 'tj-debug-overlay';
-    d.style.cssText = [
-      'position:fixed', 'bottom:8px', 'right:8px', 'z-index:9999',
-      'background:rgba(0,0,0,0.65)', 'color:#0f0', 'font:12px/1.6 monospace',
-      'padding:4px 8px', 'border-radius:4px', 'pointer-events:none',
-      'white-space:pre'
-    ].join(';');
-    document.body.appendChild(d);
-    return d;
-  })();
-
-  var LOD_LABELS = [
-    { threshold: LOD_PPD_YEAR,    label: 'year'    },
-    { threshold: LOD_PPD_QUARTER, label: 'quarter' },
-    { threshold: LOD_PPD_MONTH,   label: 'month'   },
-    { threshold: LOD_PPD_WEEK,    label: 'week'    },
-    { threshold: Infinity,        label: 'day'     }
-  ];
-
-  function lodLabel(ppd) {
-    for (var i = 0; i < LOD_LABELS.length; i++) {
-      if (ppd < LOD_LABELS[i].threshold) return LOD_LABELS[i].label;
-    }
-    return 'day';
-  }
-
-  function updateDebug(lod) {
-    if (!DEBUG_OVERLAY) { dbgDiv.style.display = 'none'; return; }
-    dbgDiv.style.display = '';
-    var ppd = lod.ppd;
-    var label = lodLabel(ppd);
-    var thresholds = [LOD_PPD_YEAR, LOD_PPD_QUARTER, LOD_PPD_MONTH, LOD_PPD_WEEK];
-    var lines = ['ppd: ' + ppd.toFixed(3) + '  [' + label + ']'];
-    thresholds.forEach(function (t) {
-      var dist = t - ppd;
-      var marker = Math.abs(dist) < t * 0.1 ? ' ←near' : '';
-      lines.push('  threshold ' + t + ': ' + (dist > 0 ? '+' : '') + dist.toFixed(3) + marker);
-    });
-    dbgDiv.textContent = lines.join('\n');
-  }
-
   /* ── Main render ── */
   /* Two paths:
    *
    * Pan fast path — when the zoom scale (k) is unchanged and the accumulated
    * pan (dx) is within RENDER_MARGIN of the last full render:
    *   • Apply a single transform="translate(dx,0)" to each date-positioned group.
-   *   • Only update the header (D3 join, cheap) and the debug overlay.
+   *   • Only update the header (D3 join, cheap).
    *   • All other groups (bars, grid, now-line, timeoff, arrows) shift as one
    *     without any DOM creation or attribute mutation per element.
    *
@@ -1256,7 +1292,6 @@
         gNow.setAttribute('transform',     xlate);
         gTimeOff.setAttribute('transform', xlate);
         gArrows.setAttribute('transform',  xlate);
-        updateDebug(lod);
         renderHeader(xScale, lod);
         return;
       }
@@ -1270,7 +1305,6 @@
     gTimeOff.removeAttribute('transform');
     gArrows.removeAttribute('transform');
 
-    updateDebug(lod);
     renderHeader(xScale, lod);
     renderStripes(xScale);
     fadeTimeOff.update(true, function () { renderTimeOff(xScale); });
