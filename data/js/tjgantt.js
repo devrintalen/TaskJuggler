@@ -506,18 +506,6 @@
     .domain([projectStart, projectEnd])
     .range([0, getChartWidth()]);
 
-  /* Apply initialScale from project metadata (e.g. 'week' for weekly column). */
-  if (project.initialScale === 'week') {
-    var domainMs  = projectEnd.getTime() - projectStart.getTime();
-    var weekMs    = 7 * 86400 * 1000;
-    var chartW    = getChartWidth();
-    /* Scale factor so that one week maps to chartW pixels */
-    var scaleFactor = domainMs / weekMs;
-    baseXScale = d3.scaleUtc()
-      .domain([projectStart, new Date(projectStart.getTime() + weekMs)])
-      .range([0, chartW]);
-  }
-
   var currentXScale = baseXScale.copy();
 
   /* Throttle renders to one per animation frame so that rapid zoom/wheel
@@ -1352,6 +1340,17 @@
       var t = d3.zoomTransform(svg);
       d3.select(svg).call(zoom.transform, d3.zoomIdentity.translate(t.x + dx, 0).scale(t.k));
     };
+  }
+
+  /* Apply initialScale from project metadata (e.g. 'week' for weekly column).
+   * We set the zoom transform rather than shrinking baseXScale, so that
+   * scaleExtent stays consistent with all other charts. */
+  if (project.initialScale === 'week') {
+    var domainMs    = projectEnd.getTime() - projectStart.getTime();
+    var weekMs      = 7 * 86400 * 1000;
+    var scaleFactor = domainMs / weekMs;
+    /* zoom.transform fires the zoom handler synchronously, updating currentXScale */
+    d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(scaleFactor));
   }
 
   render(currentXScale);
