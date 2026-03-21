@@ -85,34 +85,84 @@
   container.innerHTML = '';
 
   /* ── Floating tooltip ── (shared across all Gantt charts on the page) */
-  var tooltipDiv = document.getElementById('tj-gantt-tooltip');
+  var tooltipDiv  = document.getElementById('tj-gantt-tooltip');
+  var _ttipTitle  = null;   /* <span> holding the header text */
+  var _ttipBody   = null;   /* <div> holding the body HTML    */
+  var _ttipSticky = false;  /* true once the user clicks      */
   if (!tooltipDiv) {
     tooltipDiv = document.createElement('div');
     tooltipDiv.id = 'tj-gantt-tooltip';
     tooltipDiv.style.cssText =
-      'position:fixed;z-index:10000;pointer-events:none;display:none;' +
-      'background:#fff;border:1px solid #aaa;padding:6px 10px;' +
-      'max-width:450px;font-size:11px;font-family:sans-serif;' +
-      'box-shadow:2px 2px 6px rgba(0,0,0,0.25);border-radius:3px;' +
-      'line-height:1.4;';
+      'position:fixed;z-index:10000;display:none;' +
+      'background:#C3C8DA;border:1px solid #999999;' +
+      'max-width:600px;font-size:8pt;font-family:Verdana,Geneva,sans-serif;' +
+      'box-shadow:4px 4px 8px rgba(0,0,0,0.35);color:#000044;line-height:1.4;';
+
+    /* Title bar */
+    var ttipHeader = document.createElement('div');
+    ttipHeader.style.cssText =
+      'background:#7A7A7A;color:#ffffff;padding:2px 6px;' +
+      'display:flex;justify-content:space-between;align-items:center;' +
+      'font-weight:bold;cursor:default;user-select:none;';
+
+    _ttipTitle = document.createElement('span');
+    ttipHeader.appendChild(_ttipTitle);
+
+    var ttipClose = document.createElement('span');
+    ttipClose.innerHTML = '&nbsp;X&nbsp;';
+    ttipClose.style.cssText =
+      'cursor:pointer;background:#505050;color:#ffffff;' +
+      'padding:0 3px;margin-left:8px;flex-shrink:0;';
+    ttipClose.addEventListener('mouseover', function () {
+      this.style.background = '#A0A0A0'; this.style.color = '#000000';
+    });
+    ttipClose.addEventListener('mouseout',  function () {
+      this.style.background = '#505050'; this.style.color = '#ffffff';
+    });
+    ttipClose.addEventListener('click', function (e) {
+      e.stopPropagation();
+      _ttipSticky = false;
+      tooltipDiv.style.display = 'none';
+    });
+    ttipHeader.appendChild(ttipClose);
+    tooltipDiv.appendChild(ttipHeader);
+
+    /* Body */
+    _ttipBody = document.createElement('div');
+    _ttipBody.style.cssText = 'padding:10px;';
+    tooltipDiv.appendChild(_ttipBody);
+
+    /* Click outside closes a sticky tooltip */
+    document.addEventListener('click', function (e) {
+      if (_ttipSticky && !tooltipDiv.contains(e.target)) {
+        _ttipSticky = false;
+        tooltipDiv.style.display = 'none';
+      }
+    });
+
     document.body.appendChild(tooltipDiv);
+  } else {
+    /* Re-entering tjGanttRender for a second chart on the same page */
+    _ttipTitle = tooltipDiv.querySelector('div > span');
+    _ttipBody  = tooltipDiv.querySelector('div + div');
   }
   /* Cached tooltip dimensions — read once per show, not on every mousemove. */
   var _ttipW = 0, _ttipH = 0;
 
-  function showTooltip(html, e) {
+  function showTooltip(html, title, e) {
     if (!html) { return; }
-    tooltipDiv.innerHTML = html;
+    _ttipTitle.textContent = title || '';
+    _ttipBody.innerHTML    = html;
     tooltipDiv.style.display = 'block';
     _ttipW = tooltipDiv.offsetWidth;
     _ttipH = tooltipDiv.offsetHeight;
-    moveTooltip(e);
+    positionTooltip(e);
   }
 
-  function moveTooltip(e) {
+  function positionTooltip(e) {
     var x = e.clientX + 16;
     var y = e.clientY + 16;
-    /* Keep within viewport using dimensions cached in showTooltip */
+    /* Keep within viewport */
     if (x + _ttipW > window.innerWidth  - 8) { x = e.clientX - _ttipW - 8; }
     if (y + _ttipH > window.innerHeight - 8) { y = e.clientY - _ttipH - 8; }
     tooltipDiv.style.left = x + 'px';
@@ -123,12 +173,15 @@
     tooltipDiv.style.display = 'none';
   }
 
-  function attachTooltip(el, html) {
+  function attachTooltip(el, html, title) {
     if (!html) { return; }
     el.style.cursor = 'help';
-    el.addEventListener('mouseenter', function (e) { showTooltip(html, e); });
-    el.addEventListener('mousemove',  function (e) { moveTooltip(e); });
-    el.addEventListener('mouseleave', hideTooltip);
+    el.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (_ttipSticky) { return; }
+      _ttipSticky = true;
+      showTooltip(html, title, e);
+    });
   }
 
   var rows     = data.rows;
@@ -875,13 +928,13 @@
             renderTaskBar(g, xScale, tStart, tEnd, yCenter, sc.complete || 0);
           }
 
-          attachTooltip(g, row.tooltip);
+          attachTooltip(g, row.tooltip, row.name);
         });
       } else {
         /* Load stack row — render proportional bars for primary scenario */
         var lg = makeG('tj-loadstack', gBars);
         renderLoadStack(row, y0, xScale, w, lod, lg);
-        attachTooltip(lg, row.tooltip);
+        attachTooltip(lg, row.tooltip, row.name);
       }
     });
   }
