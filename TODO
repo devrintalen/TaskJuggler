@@ -69,9 +69,11 @@ used instead of the defined charge set.
 * [DONE] GanttLoadStack#to_htmljs hasData field: Removed — tjgantt.js never
   reads it.
 
-* Bare rescue clauses: htmljs_collect_timeoff, htmljs_query_num,
-  htmljs_query_str, and chart_tooltip_html in ReportTableLine all use bare
-  rescue that silently swallows exceptions. Narrow or log.
+* [WON'T FIX] Bare rescue clauses: htmljs_collect_timeoff, htmljs_query_num,
+  htmljs_query_str, and chart_tooltip_html use bare rescue for graceful
+  degradation (missing cell value rather than crashing the report). This is
+  consistent with the existing TJ convention used throughout SheetReceiver,
+  TextParser, etc.
 
 = Discontinued 2.x features
 
