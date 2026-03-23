@@ -36,7 +36,7 @@ class TaskJuggler
     include HTMLGraphics
 
     attr_reader :start, :end, :now, :weekStartsMonday, :header, :width,
-                :scale, :scales, :table, :markdate, :lines
+                :scale, :scales, :table, :markdate
     attr_writer :viewWidth
 
     # Create the GanttChart object, but don't do much right now. We still need

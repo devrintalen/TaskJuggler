@@ -72,10 +72,9 @@ class TaskJuggler
     def to_htmljs
       return nil unless @startDate && @endDate
       {
-        'start'   => @startDate.to_i,
-        'end'     => @endDate.to_i,
-        'values'  => @rawValues,
-        'hasData' => !@yLevels.nil?
+        'start'  => @startDate.to_i,
+        'end'    => @endDate.to_i,
+        'values' => @rawValues
       }
     end
 

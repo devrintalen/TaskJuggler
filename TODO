@@ -63,12 +63,11 @@ used instead of the defined charge set.
   and the scripts/ directory entirely. Also removed the window.tjGanttPerf
   instrumentation block from tjgantt.js.
 
-* GanttChart#lines attr_reader exposed but unused: Added to attr_reader list
-  but all callers use line_for() instead. Remove to avoid exposing internals.
+* [DONE] GanttChart#lines attr_reader: Removed from attr_reader list; line_for()
+  is the only public API needed.
 
-* GanttLoadStack#to_htmljs hasData field: Exposes @yLevels (an internal HTML
-  rendering artifact) in the JSON output. Remove or replace with a check on
-  @rawValues if the JS renderer actually needs this.
+* [DONE] GanttLoadStack#to_htmljs hasData field: Removed — tjgantt.js never
+  reads it.
 
 * Bare rescue clauses: htmljs_collect_timeoff, htmljs_query_num,
   htmljs_query_str, and chart_tooltip_html in ReportTableLine all use bare
