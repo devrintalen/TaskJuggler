@@ -3148,7 +3148,7 @@ EOT
     pattern(%w( _htmljs ), lambda {
       :htmljs
     })
-    descr('Generate a web page (HTML file) with an interactive JavaScript Gantt chart. Only supported for taskreport; all other report types fall back to standard HTML output.')
+    descr('Generate an interactive web page (HTML file) with a JavaScript chart supporting pan and zoom. Supported for taskreport and resourcereport.')
 
     pattern(%w( _niku ), lambda {
       :niku
