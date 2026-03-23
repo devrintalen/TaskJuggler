@@ -325,7 +325,7 @@ textreport frame "" {
   ->8-
   footer "----"
   textreport index "Overview" {
-    formats htmljs
+    formats html
     center '<[report id="overview"]>'
   }
 
@@ -343,22 +343,22 @@ textreport frame "" {
   }
 
   textreport development "Development" {
-    formats htmljs
+    formats html
     center '<[report id="development"]>'
   }
 
   textreport "Deliveries" {
-    formats htmljs
+    formats html
     center '<[report id="deliveries"]>'
   }
 
   textreport "ContactList" {
-    formats htmljs
+    formats html
     title "Contact List"
     center '<[report id="contactList"]>'
   }
   textreport "ResourceGraph" {
-    formats htmljs
+    formats html
     title "Resource Graph"
     center '<[report id="resourceGraph"]>'
   }

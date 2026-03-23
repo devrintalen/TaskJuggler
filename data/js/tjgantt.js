@@ -1314,68 +1314,6 @@
     fadeArrows.update(lod.showArrows, function () { renderArrows(xScale); });
   }
 
-  /* ── Optional performance instrumentation ──
-   * Activated by setting window.tjGanttPerf = true before the page loads.
-   * Each instrumented function accumulates call durations in _perfData.
-   * Results are exposed as window.tjGanttPerfReport() → plain object. */
-  if (window.tjGanttPerf) {
-    var _perfData = {};
-    var _wrap = function (name, fn) {
-      _perfData[name] = [];
-      return function () {
-        var t0 = performance.now();
-        var r  = fn.apply(this, arguments);
-        _perfData[name].push(performance.now() - t0);
-        return r;
-      };
-    };
-
-    render          = _wrap('render',          render);
-    renderBars      = _wrap('renderBars',      renderBars);
-    renderLoadStack = _wrap('renderLoadStack', renderLoadStack);
-    mergeBuckets    = _wrap('mergeBuckets',    mergeBuckets);
-    renderTimeOff   = _wrap('renderTimeOff',   renderTimeOff);
-    renderArrows    = _wrap('renderArrows',    renderArrows);
-    renderHeader    = _wrap('renderHeader',    renderHeader);
-    renderGrid      = _wrap('renderGrid',      renderGrid);
-
-    /* RAF frame-time tracking — records wall-clock ms between each frame. */
-    var _rafTimes   = [];
-    var _rafLast    = null;
-    var _rafActive  = false;
-    var _origSchedule = scheduleRender;
-    scheduleRender = function () {
-      if (!_rafActive) {
-        _rafActive = true;
-        _rafLast   = performance.now();
-        var _rafLoop = function () {
-          var now = performance.now();
-          if (_rafTimes.length < 2000) { _rafTimes.push(now - _rafLast); }
-          _rafLast = now;
-          if (_rafActive) { requestAnimationFrame(_rafLoop); }
-        };
-        requestAnimationFrame(_rafLoop);
-      }
-      _origSchedule();
-    };
-
-    window.tjGanttPerfReport = function () {
-      _rafActive = false;
-      return { fns: _perfData, frames: _rafTimes };
-    };
-
-    window.tjGanttSetPpd = function (targetPpd) {
-      var basePpd = computePpd(baseXScale);
-      var k = targetPpd / basePpd;
-      d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(k));
-    };
-
-    window.tjGanttPan = function (dx) {
-      var t = d3.zoomTransform(svg);
-      d3.select(svg).call(zoom.transform, d3.zoomIdentity.translate(t.x + dx, 0).scale(t.k));
-    };
-  }
-
   /* Apply initialScale from project metadata (set when a daily/weekly/monthly/
    * quarterly/yearly column is present).  We set the zoom transform rather than
    * shrinking baseXScale so that scaleExtent stays consistent across all charts. */

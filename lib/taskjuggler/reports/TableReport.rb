@@ -216,10 +216,8 @@ class TaskJuggler
       end
 
       # ── Embedded JSON data ───────────────────────────────────────────────────
-      build_time = Time.now.to_i
       html << (data_script = XMLElement.new('script', 'type' => 'text/javascript'))
-      data_script << XMLBlob.new("\nwindow.tjGanttData = #{json_str};\n" \
-                                 "window._tjBuildTime = #{build_time};\n")
+      data_script << XMLBlob.new("\nwindow.tjGanttData = #{json_str};\n")
 
       # ── Container div ────────────────────────────────────────────────────────
       html << XMLElement.new('div', 'id' => 'tj-gantt-container',
@@ -249,29 +247,6 @@ class TaskJuggler
       html << footer_div
 
       html << rt_to_html('footer')
-
-      # ── Auto-reload on file change ────────────────────────────────────────────
-      # Polls via XHR every 2 s, comparing _tjBuildTime in the fetched text.
-      # XHR works for both file:// (Chromium) and http:// origins.
-      reload_js = <<~'JS'
-        (function () {
-          function _tjCheckReload() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', window.location.href, true);
-            xhr.onload = function () {
-              var m = xhr.responseText.match(/window\._tjBuildTime\s*=\s*(\d+)/);
-              if (m && parseInt(m[1], 10) !== window._tjBuildTime) {
-                window.location.reload();
-              }
-            };
-            xhr.onerror = function () {};
-            xhr.send();
-          }
-          setInterval(_tjCheckReload, 2000);
-        })();
-      JS
-      html << (reload_script = XMLElement.new('script', 'type' => 'text/javascript'))
-      reload_script << XMLBlob.new("\n" + reload_js + "\n")
 
       html
     end

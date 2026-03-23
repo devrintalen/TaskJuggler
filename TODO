@@ -48,6 +48,32 @@ used instead of the defined charge set.
 * Make gap ends align with certain times or days of week, day of
   weeks or day of months.
 
+== htmljs format pre-merge cleanup
+
+* [DONE] Auto-reload always-on: Removed the 2s XHR polling reload and the
+  _tjBuildTime build-stamp from TableReport#to_htmljs.
+
+* [DONE] Tutorial changed to htmljs: Reverted examples/Tutorial/tutorial.tjp
+  to master — all five textreport blocks use `formats html` again.
+
+* [DONE] .gitignore: Removed /.claude/, /CLAUDE.md, and *~ — these belong in
+  ~/.gitignore_global, not the project .gitignore.
+
+* [DONE] Performance scripts: Removed scripts/perf-pan.js, scripts/perf-test.js,
+  and the scripts/ directory entirely. Also removed the window.tjGanttPerf
+  instrumentation block from tjgantt.js.
+
+* GanttChart#lines attr_reader exposed but unused: Added to attr_reader list
+  but all callers use line_for() instead. Remove to avoid exposing internals.
+
+* GanttLoadStack#to_htmljs hasData field: Exposes @yLevels (an internal HTML
+  rendering artifact) in the JSON output. Remove or replace with a check on
+  @rawValues if the JS renderer actually needs this.
+
+* Bare rescue clauses: htmljs_collect_timeoff, htmljs_query_num,
+  htmljs_query_str, and chart_tooltip_html in ReportTableLine all use bare
+  rescue that silently swallows exceptions. Narrow or log.
+
 = Discontinued 2.x features
 
 TaskJuggler III should be mostly compatible with 2.x. Existing
