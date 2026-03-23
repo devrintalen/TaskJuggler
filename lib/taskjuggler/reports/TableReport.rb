@@ -224,7 +224,7 @@ class TaskJuggler
                              'style' => 'width:100%;font-family:sans-serif;margin-top:-1px;')
 
       # ── Inline chart rendering script ────────────────────────────────────────
-      chart_src = htmljs_find_data_file('data/js/tjgantt.js')
+      chart_src = htmljs_find_data_file('data/js/tjchart.js')
       if chart_src
         html << (chart_script = XMLElement.new('script', 'type' => 'text/javascript'))
         chart_script << XMLBlob.new("\n" + IO.read(chart_src) + "\n")

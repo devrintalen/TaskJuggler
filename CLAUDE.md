@@ -7,7 +7,7 @@ This document describes how the `to_html` generators create the visual image of 
 TaskJuggler supports two HTML output modes for task reports:
 
 - **`:html`** — Static HTML rendered entirely in Ruby, using `<div>` elements with absolute positioning and CSS classes.
-- **`:htmljs`** — Interactive HTML that embeds a JSON data payload and JavaScript (D3.js + custom `tjgantt.js`) for client-side rendering with pan/zoom support.
+- **`:htmljs`** — Interactive HTML that embeds a JSON data payload and JavaScript (D3.js + custom `tjchart.js`) for client-side rendering with pan/zoom support.
 
 ---
 
@@ -59,8 +59,8 @@ TaskJuggler supports two HTML output modes for task reports:
 | File | Role |
 |------|------|
 | `data/css/tjreport.css` | All CSS for tables, Gantt elements, load stacks, grid lines |
-| `data/js/tjgantt.js` | Client-side Gantt renderer (reads `window.tjGanttData`) |
-| `data/js/d3.min.js` | D3.js library used by `tjgantt.js` |
+| `data/js/tjchart.js` | Client-side Gantt renderer (reads `window.tjGanttData`) |
+| `data/js/d3.min.js` | D3.js library used by `tjchart.js` |
 | `data/icons/` | PNG icons embedded in report cells |
 
 ---
@@ -202,8 +202,8 @@ TableReport#to_htmljs                                 # TableReport.rb:157
   # All to_htmljs methods return Ruby hashes.
   # TableReport serializes the full tree to JSON via htmljs_to_json (no gem dep).
   # JSON embedded as: <script>window.tjGanttData = {...};</script>
-  # d3.min.js and tjgantt.js are then inlined.
-  # tjgantt.js reads window.tjGanttData and renders the chart with D3.
+  # d3.min.js and tjchart.js are then inlined.
+  # tjchart.js reads window.tjGanttData and renders the chart with D3.
 ```
 
 ---
@@ -315,7 +315,7 @@ Key rendering primitives in `HTMLGraphics` (`lib/taskjuggler/reports/HTMLGraphic
 
 ### Interactive HTML mode
 
-The Ruby code serializes all task/resource data into a JSON structure (`window.tjGanttData`) embedded in a `<script>` tag. The `tjgantt.js` file (820 lines, using D3.js) reads this data and renders an interactive SVG/Canvas Gantt chart with zoom and pan support.
+The Ruby code serializes all task/resource data into a JSON structure (`window.tjGanttData`) embedded in a `<script>` tag. The `tjchart.js` file (820 lines, using D3.js) reads this data and renders an interactive SVG/Canvas Gantt chart with zoom and pan support.
 
 ---
 

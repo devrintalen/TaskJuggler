@@ -1,4 +1,4 @@
-/* tjgantt.js — D3 v7 interactive Gantt chart for TaskJuggler jstaskreport
+/* tjchart.js — D3 v7 interactive chart for TaskJuggler htmljs reports
  * Reads window.tjGanttData and renders an interactive Gantt chart into
  * #tj-gantt-container.
  *
