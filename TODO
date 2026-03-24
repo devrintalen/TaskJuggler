@@ -41,6 +41,10 @@ used instead of the defined charge set.
 
 * Highlight dependency arrows of a task with mouse-over effect.
 
+* JS Gantt chart hover highlighting: highlight the hovered row and its
+  taskbar subtly, and recursively highlight the full dependency chain
+  (ancestors) of the hovered task, dimming unrelated tasks.
+
 * Make gap ends align with certain times or days of week, day of
   weeks or day of months.
 
