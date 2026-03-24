@@ -1260,6 +1260,30 @@
   }
 
   /* ── Dependency arrows ── */
+  /* Compute the SVG path string for a dependency arrow from (sx,sy) to (ex,ey).
+   * Uses a three-segment H/V/H path when there is horizontal room, otherwise a
+   * stepped detour that routes around overlapping bars.
+   * Returns a path data string suitable for the 'd' attribute of an SVG <path>. */
+  function routeArrow(sx, sy, ex, ey) {
+    var x1 = sx + MIN_START_GAP;
+    var x2 = ex - MIN_END_GAP;
+    if (x1 < x2) {
+      var xSeg = x1 + (x2 - x1) / 2;
+      return 'M'+sx+','+sy+' H'+xSeg+' V'+ey+' H'+ex;
+    } else {
+      var deltaY = sy < ey ? 1 : -1;
+      var ySeg   = sy + 8 * deltaY;
+      var pts    = [[sx, sy], [x1, sy]];
+      if (x1 !== x2) {
+        pts.push([x1, ySeg], [x2, ySeg]);
+      }
+      pts.push([x2, ey], [ex, ey]);
+      return pts.map(function (p, pi) {
+        return (pi === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+      }).join(' ');
+    }
+  }
+
   /* Render SVG path dependency arrows for all task rows in the primary scenario.
    * Each arrow runs from the end of the predecessor to the start of the successor.
    * Inherited dependencies (shared with a parent task) are skipped to avoid clutter.
@@ -1292,25 +1316,7 @@
         var ex = xScale(row._start);
         var ey = yOffsets[i] + ROW_H / 2;
 
-        var x1 = sx + MIN_START_GAP;
-        var x2 = ex - MIN_END_GAP;
-        var pathStr;
-        if (x1 < x2) {
-          var xSeg = x1 + (x2 - x1) / 2;
-          pathStr = 'M'+sx+','+sy+' H'+xSeg+' V'+ey+' H'+ex;
-        } else {
-          var deltaY = sy < ey ? 1 : -1;
-          var ySeg   = sy + 8 * deltaY;
-          var pts    = [[sx, sy], [x1, sy]];
-          if (x1 !== x2) {
-            pts.push([x1, ySeg], [x2, ySeg]);
-          }
-          pts.push([x2, ey], [ex, ey]);
-          pathStr = pts.map(function (p, pi) {
-            return (pi === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
-          }).join(' ');
-        }
-
+        var pathStr = routeArrow(sx, sy, ex, ey);
         svgEl('path', gArrows, {
           d: pathStr, fill: 'none', stroke: C.depline,
           'stroke-width': 1, 'marker-end': 'url(#tjArrow)'
