@@ -367,6 +367,9 @@
   var tbody = document.createElement('tbody');
   table.appendChild(tbody);
 
+  var rowTrs = [];   /* rowTrs[i] = primary <tr> (scenarioTrs[0]) for row i */
+  var rowBgs = [];   /* rowBgs[i] = original rowBgColor string for row i     */
+
   rows.forEach(function (row, i) {
     var span    = row.rowSpan || 1;
     var rowType = row.rowType || 'task';
@@ -386,6 +389,9 @@
       tr2.style.cssText = 'background:' + bg + ';height:' + ROW_H + 'px;';
       scenarioTrs.push(tr2);
     }
+
+    rowTrs.push(scenarioTrs[0]);
+    rowBgs.push(bg);
 
     cols.forEach(function (col) {
       /* Non-scenario-specific columns span all rows; scenario-specific ones
