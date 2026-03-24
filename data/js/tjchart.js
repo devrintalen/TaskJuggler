@@ -525,13 +525,15 @@
   var gHeaderSm = makeG('tj-header-small', gHeader);
 
   /* Body groups live in svg (the scrollable body SVG); no Y translate needed */
-  var gBody    = makeG('tj-body');
-  var gStripes = makeG('tj-stripes', gBody);
-  var gTimeOff = makeG('tj-timeoff', gBody);
-  var gBars    = makeG('tj-bars',    gBody);
-  var gArrows  = makeG('tj-arrows',  gBody);
-  var gNow     = makeG('tj-now',     gBody);
-  var gGrid    = makeG('tj-grid',    gBody);
+  var gBody         = makeG('tj-body');
+  var gStripes      = makeG('tj-stripes',       gBody);
+  var gRowHighlight = makeG('tj-row-highlight', gBody);
+  var gTimeOff      = makeG('tj-timeoff',       gBody);
+  var gBars         = makeG('tj-bars',          gBody);
+  var gArrows       = makeG('tj-arrows',        gBody);
+  var gBarHighlight = makeG('tj-bar-highlight', gBody);
+  var gNow          = makeG('tj-now',           gBody);
+  var gGrid         = makeG('tj-grid',          gBody);
 
   var fadeTimeOff = makeFadeable(gTimeOff, { noClear: true });
   var fadeArrows  = makeFadeable(gArrows);
@@ -1300,11 +1302,12 @@
       if (Math.abs(dx) < RENDER_MARGIN) {
         /* Fast path: translate pre-rendered body content, refresh header only. */
         var xlate = 'translate(' + dx + ',0)';
-        gBars.setAttribute('transform',    xlate);
-        gGrid.setAttribute('transform',    xlate);
-        gNow.setAttribute('transform',     xlate);
-        gTimeOff.setAttribute('transform', xlate);
-        gArrows.setAttribute('transform',  xlate);
+        gBars.setAttribute('transform',         xlate);
+        gBarHighlight.setAttribute('transform', xlate);
+        gGrid.setAttribute('transform',         xlate);
+        gNow.setAttribute('transform',          xlate);
+        gTimeOff.setAttribute('transform',      xlate);
+        gArrows.setAttribute('transform',       xlate);
         renderHeader(xScale, lod);
         return;
       }
@@ -1313,6 +1316,7 @@
     /* Full render: reset transforms, rebuild with RENDER_MARGIN expansion. */
     _panBaseT = { x: t.x, k: t.k };
     gBars.removeAttribute('transform');
+    gBarHighlight.removeAttribute('transform');
     gGrid.removeAttribute('transform');
     gNow.removeAttribute('transform');
     gTimeOff.removeAttribute('transform');
