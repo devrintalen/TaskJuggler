@@ -328,6 +328,120 @@
   }
   updateRowHighlight._prev = -1;
 
+  /* Update the bar/arrow highlight overlay (gBarHighlight).
+   * When hoveredBarId is set, redraws highlighted bars and in-chain arrows
+   * for the hovered task and its full transitive predecessor chain.
+   * Always uses _lastXScale + the group's current transform (set by render pipeline). */
+  function updateBarHighlight() {
+    clearG(gBarHighlight);
+    if (!hoveredBarId || !_lastXScale) { return; }
+
+    var xScale    = _lastXScale;
+    var w         = getChartWidth();
+    var ancestors = getAncestors(hoveredBarId);
+    var chainSet  = ancestors;   /* hoveredBarId handled by explicit check below */
+
+    /* ── Highlighted bars ── */
+    rows.forEach(function (row, i) {
+      if ((row.rowType || 'task') !== 'task') { return; }
+      if (row.id !== hoveredBarId && !chainSet.has(row.id)) { return; }
+
+      var y0        = yOffsets[i];
+      var scList    = project.scenarios || [sc0];
+      scList.forEach(function (scId, s) {
+        if (s >= (row.rowSpan || 1)) { return; }
+        var sc      = (row.scenarios || {})[scId] || {};
+        var yCenter = y0 + s * ROW_H + ROW_H / 2;
+        if (!sc.start || !sc.end) { return; }
+        var tStart = projectMidnight(sc.start);
+        var tEnd   = projectMidnight(sc.end);
+
+        var bx0 = xScale(tStart);
+        var bx1 = xScale(tEnd);
+        if (bx1 < -RENDER_MARGIN || bx0 > w + RENDER_MARGIN) { return; }
+        if (!sc.milestone && (bx1 - bx0) < 1) { return; }
+
+        var g = makeG('tj-task-hl', gBarHighlight);
+        if (sc.milestone) {
+          /* Highlighted milestone: grey diamond */
+          var cx = xScale(tStart);
+          var r  = MS_HALF;
+          svgEl('polygon', g, {
+            points: cx+','+(yCenter-r)+' '+(cx+r)+','+yCenter+' '+
+                    cx+','+(yCenter+r)+' '+(cx-r)+','+yCenter,
+            fill: '#555555'
+          });
+        } else if (row._isContainer) {
+          /* Highlighted container: grey bar + jag triangles */
+          var x   = xScale(tStart);
+          var x2h = xScale(tEnd);
+          var wh  = Math.max(2, x2h - x);
+          var s2  = CONT_HALF;
+          var top = yCenter - s2;
+          var mid = yCenter;
+          var tip = yCenter + s2;
+          svgEl('rect', g, { x: x - s2, y: top, width: wh + 2 * s2, height: s2, fill: '#555555' });
+          svgEl('polygon', g, {
+            points: (x-s2)+','+mid+' '+(x+s2)+','+mid+' '+x+','+tip, fill: '#555555'
+          });
+          svgEl('polygon', g, {
+            points: (x+wh-s2)+','+mid+' '+(x+wh+s2)+','+mid+' '+(x+wh)+','+tip, fill: '#555555'
+          });
+        } else {
+          /* Highlighted task bar: dark frame + bright blue inner */
+          var xb  = xScale(tStart);
+          var x2b = xScale(tEnd);
+          var wb  = Math.max(2, x2b - xb);
+          var bh  = BAR_HALF;
+          svgEl('rect', g, { x: xb, y: yCenter - bh, width: wb, height: bh * 2,
+                              fill: C.taskbarFrame });
+          svgEl('rect', g, { x: xb + 1, y: yCenter - bh + 1,
+                              width: Math.max(0, wb - 2), height: bh * 2 - 2,
+                              fill: '#6b96ff' });
+        }
+      });
+    });
+
+    /* ── Highlighted arrows ── */
+    rows.forEach(function (row, i) {
+      if ((row.rowType || 'task') !== 'task') { return; }
+      if (!row.depends || !row.depends.length) { return; }
+
+      var isSuccessor = (row.id === hoveredBarId || chainSet.has(row.id));
+      if (!isSuccessor) { return; }
+
+      row.depends.forEach(function (dep) {
+        if ((dep.scenario || sc0) !== sc0) { return; }
+        /* Only highlight arrow if predecessor is also in the chain */
+        if (dep.id !== hoveredBarId && !chainSet.has(dep.id)) { return; }
+
+        var predInfo = taskRowById[dep.id];
+        if (!predInfo) { return; }
+        var pred = predInfo.row;
+        if (!pred._end || !row._start) { return; }
+
+        /* Skip inherited dependencies (matches renderArrows() behaviour). */
+        if (row.parent) {
+          var parentInfo = taskRowById[row.parent];
+          if (parentInfo && parentInfo.row.depends && parentInfo.row.depends.some(function (pd) {
+            return pd.id === dep.id && (pd.scenario || sc0) === sc0;
+          })) { return; }
+        }
+
+        var sx = xScale(pred._end);
+        var sy = yOffsets[predInfo.idx] + ROW_H / 2;
+        var ex = xScale(row._start);
+        var ey = yOffsets[i] + ROW_H / 2;
+
+        svgEl('path', gBarHighlight, {
+          d: routeArrow(sx, sy, ex, ey),
+          fill: 'none', stroke: '#e07800',
+          'stroke-width': 2, 'marker-end': 'url(#tjArrowHL)'
+        });
+      });
+    });
+  }
+
   /* Return the total pixel height of a row. Multi-scenario task rows use
    * rowSpan > 1, stacking one ROW_H band per scenario vertically. */
   function rowVisualHeight(row) {
@@ -704,6 +818,41 @@
     if (hoveredRowIdx !== -1) {
       hoveredRowIdx = -1;
       updateRowHighlight();
+    }
+  });
+
+  /* Bar highlight: event delegation on gBars */
+  gBars.addEventListener('mouseover', function (e) {
+    /* Walk up from e.target to find the nearest <g> with _rowId */
+    var el = e.target;
+    while (el && el !== gBars) {
+      if (el._rowId !== undefined) {
+        if (el._rowId !== hoveredBarId) {
+          hoveredBarId = el._rowId;
+          updateBarHighlight();
+        }
+        return;
+      }
+      el = el.parentNode;
+    }
+  });
+
+  gBars.addEventListener('mouseout', function (e) {
+    /* Only clear if leaving gBars entirely (not moving to a child element) */
+    if (!gBars.contains(e.relatedTarget)) {
+      hoveredBarId = null;
+      updateBarHighlight();
+    }
+  });
+
+  /* Clear both hover states when the mouse leaves the chart SVG entirely */
+  svg.addEventListener('mouseleave', function () {
+    var changed = false;
+    if (hoveredRowIdx !== -1) { hoveredRowIdx = -1; changed = true; }
+    if (hoveredBarId  !== null) { hoveredBarId = null; changed = true; }
+    if (changed) {
+      updateRowHighlight();
+      updateBarHighlight();
     }
   });
 
@@ -1447,7 +1596,9 @@
     renderNowLine(xScale);
     renderBars(xScale, lod);
     fadeArrows.update(lod.showArrows, function () { renderArrows(xScale); });
-    updateRowHighlight();   /* refresh gRowHighlight width after any resize */
+    _lastXScale = xScale;        /* capture for updateBarHighlight() */
+    updateRowHighlight();         /* refresh gRowHighlight width after any resize */
+    updateBarHighlight();         /* redraw chain highlight at new scale */
   }
 
   /* Apply initialScale from project metadata (set when a daily/weekly/monthly/
