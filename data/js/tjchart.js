@@ -300,6 +300,34 @@
     return (_ancestorCache[rowId] = result);
   }
 
+  /* Update the row hover highlight in both the left panel and SVG.
+   * Reverts the previous highlighted <tr>, sets the new one, and redraws
+   * gRowHighlight with a single full-width rect at the hovered row's Y. */
+  function updateRowHighlight() {
+    /* Revert any previously highlighted <tr> */
+    if (updateRowHighlight._prev >= 0) {
+      rowTrs[updateRowHighlight._prev].style.backgroundColor = rowBgs[updateRowHighlight._prev];
+    }
+    updateRowHighlight._prev = hoveredRowIdx;
+
+    /* Apply new highlight to left-panel <tr> */
+    if (hoveredRowIdx >= 0) {
+      rowTrs[hoveredRowIdx].style.backgroundColor = rowHoverColor(rows[hoveredRowIdx]);
+    }
+
+    /* Redraw gRowHighlight */
+    clearG(gRowHighlight);
+    if (hoveredRowIdx >= 0) {
+      var row = rows[hoveredRowIdx];
+      svgEl('rect', gRowHighlight, {
+        x: 0, y: yOffsets[hoveredRowIdx],
+        width: getChartWidth(), height: rowVisualHeight(row),
+        fill: rowHoverColor(row)
+      });
+    }
+  }
+  updateRowHighlight._prev = -1;
+
   /* Return the total pixel height of a row. Multi-scenario task rows use
    * rowSpan > 1, stacking one ROW_H band per scenario vertically. */
   function rowVisualHeight(row) {
@@ -449,6 +477,18 @@
         targetTr.appendChild(td);
       });
     });
+    /* Row hover: highlight on mouseenter, clear on mouseleave */
+    (function (idx) {
+      scenarioTrs[0].addEventListener('mouseenter', function () {
+        hoveredRowIdx = idx;
+        updateRowHighlight();
+      });
+      scenarioTrs[0].addEventListener('mouseleave', function () {
+        hoveredRowIdx = -1;
+        updateRowHighlight();
+      });
+    }(i));
+
     scenarioTrs.forEach(function (t) { tbody.appendChild(t); });
   });
 
@@ -635,6 +675,34 @@
     _scrollLock = true;
     leftPanel.scrollTop = rightBody.scrollTop;
     _scrollLock = false;
+  });
+
+  /* Row highlight from SVG body hover */
+  rightBody.addEventListener('mousemove', function (e) {
+    var rect = rightBody.getBoundingClientRect();
+    var y    = e.clientY - rect.top + rightBody.scrollTop;
+    /* Binary search yOffsets for the row containing y */
+    var lo = 0, hi = rows.length - 1, idx = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (y < yOffsets[mid]) {
+        hi = mid - 1;
+      } else if (y >= yOffsets[mid + 1]) {
+        lo = mid + 1;
+      } else {
+        idx = mid; break;
+      }
+    }
+    if (idx !== hoveredRowIdx) {
+      hoveredRowIdx = idx;
+      updateRowHighlight();
+    }
+  });
+  rightBody.addEventListener('mouseleave', function () {
+    if (hoveredRowIdx !== -1) {
+      hoveredRowIdx = -1;
+      updateRowHighlight();
+    }
   });
 
   /* ───────────────────────── Render helpers ───────────────────────────── */
@@ -1377,6 +1445,7 @@
     renderNowLine(xScale);
     renderBars(xScale, lod);
     fadeArrows.update(lod.showArrows, function () { renderArrows(xScale); });
+    updateRowHighlight();   /* refresh gRowHighlight width after any resize */
   }
 
   /* Apply initialScale from project metadata (set when a daily/weekly/monthly/
