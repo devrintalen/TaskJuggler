@@ -1019,6 +1019,7 @@
           if (!sc.milestone && (bx1 - bx0) < 1) { return; }
 
           var g = makeG('tj-task', gBars);
+          g._rowId = row.id;
           if (sc.milestone) {
             renderMilestone(g, xScale, tStart, yCenter);
           } else if (row._isContainer) {
