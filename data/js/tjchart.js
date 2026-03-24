@@ -477,15 +477,17 @@
         targetTr.appendChild(td);
       });
     });
-    /* Row hover: highlight on mouseenter, clear on mouseleave */
+    /* Row hover: attach to all scenario TRs so multi-scenario rows don't flicker */
     (function (idx) {
-      scenarioTrs[0].addEventListener('mouseenter', function () {
-        hoveredRowIdx = idx;
-        updateRowHighlight();
-      });
-      scenarioTrs[0].addEventListener('mouseleave', function () {
-        hoveredRowIdx = -1;
-        updateRowHighlight();
+      scenarioTrs.forEach(function (t) {
+        t.addEventListener('mouseenter', function () {
+          hoveredRowIdx = idx;
+          updateRowHighlight();
+        });
+        t.addEventListener('mouseleave', function () {
+          hoveredRowIdx = -1;
+          updateRowHighlight();
+        });
       });
     }(i));
 
