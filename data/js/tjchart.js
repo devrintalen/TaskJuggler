@@ -269,6 +269,37 @@
     return (i % 2 === 0) ? C.resourceRowEven : C.resourceRowOdd;
   }
 
+  /* Return the highlight background colour for a hovered row. */
+  function rowHoverColor(row) {
+    var rt = row.rowType;
+    if (rt === 'nested-task' || rt === 'task' || rt === undefined) {
+      return '#b8d0ff';
+    }
+    return '#ffd4b0';
+  }
+
+  /* Return a Set of all transitive predecessor task ids for the given rowId,
+   * following row.depends links in the primary scenario (sc0).
+   * Result is cached permanently (tjGanttData is static for the page lifetime). */
+  var _ancestorCache = {};
+  function getAncestors(rowId) {
+    if (_ancestorCache[rowId]) { return _ancestorCache[rowId]; }
+    var result = new Set();
+    var queue  = [rowId];
+    while (queue.length) {
+      var id   = queue.shift();
+      var info = taskRowById[id];
+      if (!info) { continue; }
+      (info.row.depends || []).forEach(function (dep) {
+        if ((dep.scenario || sc0) === sc0 && !result.has(dep.id)) {
+          result.add(dep.id);
+          queue.push(dep.id);
+        }
+      });
+    }
+    return (_ancestorCache[rowId] = result);
+  }
+
   /* Return the total pixel height of a row. Multi-scenario task rows use
    * rowSpan > 1, stacking one ROW_H band per scenario vertically. */
   function rowVisualHeight(row) {
@@ -291,6 +322,10 @@
   var chartH   = yOffsets[yOffsets.length - 1];
   var _stripesW = -1;   // cached width for stripe invalidation
   var _panBaseT = null; // zoom transform {x,k} saved at last full render (pan fast-path)
+  /* ── Hover highlight state ── */
+  var hoveredRowIdx = -1;   // index into rows[] (-1 = none)
+  var hoveredBarId  = null; // row.id of the task bar under the cursor (null = none)
+  var _lastXScale   = null; // xScale captured at last full render; used by updateBarHighlight
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
