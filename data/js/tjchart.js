@@ -493,6 +493,19 @@
   marker.appendChild(arrowPoly);
   defs.appendChild(marker);
 
+  var markerHL = document.createElementNS(svgNS, 'marker');
+  markerHL.setAttribute('id', 'tjArrowHL');
+  markerHL.setAttribute('markerWidth', '6');
+  markerHL.setAttribute('markerHeight', '6');
+  markerHL.setAttribute('refX', '5');
+  markerHL.setAttribute('refY', '3');
+  markerHL.setAttribute('orient', 'auto');
+  var arrowPolyHL = document.createElementNS(svgNS, 'polygon');
+  arrowPolyHL.setAttribute('points', '0,0 6,3 0,6');
+  arrowPolyHL.setAttribute('fill', '#e07800');
+  markerHL.appendChild(arrowPolyHL);
+  defs.appendChild(markerHL);
+
   /* ── Layer groups ── */
   /* Create an SVG <g> element, set its class, append it to parent (defaulting
    * to the scrollable body svg), and return it.
