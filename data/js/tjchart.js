@@ -547,7 +547,9 @@
 
         var td = document.createElement('td');
         td.style.cssText =
-          'padding:1px 4px;text-align:' + col.align + ';border:1px solid #9a9a9a;' +
+          'padding:1px 4px;text-align:' + col.align + ';' +
+          'border-left:1px solid #9a9a9a;border-right:1px solid #9a9a9a;' +
+          'box-shadow:inset 0 -1px 0 0 #9a9a9a;' +
           'vertical-align:middle;';
         if (!scSpecific && span > 1) { td.rowSpan = span; }
 
