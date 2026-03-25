@@ -500,8 +500,9 @@
     th.style.cssText =
       'position:sticky;top:0;z-index:10;' +
       'padding:2px 4px;text-align:' + col.align + ';' +
-	  'height:' + HDR_H + 'px;border-right:1px solid #9a9a9a;border-bottom:1px solid #9a9a9a;' +
-      'box-sizing:border-box;background:' + C.headerBg + ';color:' + C.headerFg + ';';
+	  'height:' + HDR_H + 'px;border-right:1px solid #9a9a9a;box-sizing:border-box;' +
+      'box-shadow:inset 0 -1px 0 0 #9a9a9a;' +
+      'background:' + C.headerBg + ';color:' + C.headerFg + ';';
     hrow.appendChild(th);
   });
 
@@ -650,8 +651,7 @@
   /* Fixed (non-scrolling) header strip */
   var rightHeader = document.createElement('div');
   rightHeader.style.cssText =
-    'flex-shrink:0;overflow:hidden;height:' + HDR_H + 'px;' +
-    'border-bottom:1px solid #7a7a7a;box-sizing:border-box;';
+    'flex-shrink:0;overflow:hidden;height:' + HDR_H + 'px;';
   rightColumn.appendChild(rightHeader);
 
   /* ── SVG ── */
