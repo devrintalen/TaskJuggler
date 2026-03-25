@@ -321,7 +321,7 @@
       var row = rows[hoveredRowIdx];
       svgEl('rect', gRowHighlight, {
         x: 0, y: yOffsets[hoveredRowIdx],
-        width: getChartWidth(), height: rowVisualHeight(row),
+        width: getChartWidth(), height: rowVisualHeight(row) - 1,
         fill: rowHoverColor(row)
       });
     }
