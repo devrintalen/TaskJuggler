@@ -273,9 +273,9 @@
   function rowHoverColor(row) {
     var rt = row.rowType;
     if (rt === 'nested-task' || rt === 'task' || rt === undefined) {
-      return '#b8d0ff';
+      return 'rgba(184,208,255,0.6)';
     }
-    return '#ffd4b0';
+    return 'rgba(255,212,176,0.6)';
   }
 
   /* Return a Set of all transitive predecessor task ids for the given rowId,
@@ -388,7 +388,7 @@
             points: (x+wh-s2)+','+mid+' '+(x+wh+s2)+','+mid+' '+(x+wh)+','+tip, fill: '#555555'
           });
         } else {
-          /* Highlighted task bar: dark frame + bright blue inner */
+          /* Highlighted task bar: dark frame + bright blue inner + orange border */
           var xb  = xScale(tStart);
           var x2b = xScale(tEnd);
           var wb  = Math.max(2, x2b - xb);
@@ -398,6 +398,8 @@
           svgEl('rect', g, { x: xb + 1, y: yCenter - bh + 1,
                               width: Math.max(0, wb - 2), height: bh * 2 - 2,
                               fill: '#6b96ff' });
+          svgEl('rect', g, { x: xb, y: yCenter - bh, width: wb, height: bh * 2,
+                              fill: 'none', stroke: '#e07800', 'stroke-width': 2 });
         }
       });
     });
@@ -726,13 +728,14 @@
   /* Body groups live in svg (the scrollable body SVG); no Y translate needed */
   var gBody         = makeG('tj-body');
   var gStripes      = makeG('tj-stripes',       gBody);
-  var gRowHighlight = makeG('tj-row-highlight', gBody);
   var gTimeOff      = makeG('tj-timeoff',       gBody);
+  var gRowHighlight = makeG('tj-row-highlight', gBody);
   var gBars         = makeG('tj-bars',          gBody);
   var gArrows       = makeG('tj-arrows',        gBody);
   var gBarHighlight = makeG('tj-bar-highlight', gBody);
   var gNow          = makeG('tj-now',           gBody);
   var gGrid         = makeG('tj-grid',          gBody);
+  gBarHighlight.style.pointerEvents = 'none';
 
   var fadeTimeOff = makeFadeable(gTimeOff, { noClear: true });
   var fadeArrows  = makeFadeable(gArrows);
