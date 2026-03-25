@@ -398,6 +398,12 @@
           svgEl('rect', g, { x: xb + 1, y: yCenter - bh + 1,
                               width: Math.max(0, wb - 2), height: bh * 2 - 2,
                               fill: '#6b96ff' });
+          var pct = Math.max(0, Math.min(100, sc.complete || 0));
+          if (pct > 0) {
+            svgEl('rect', g, { x: xb + 1, y: yCenter - bh / 2,
+                                width: Math.max(0, (wb - 2) * pct / 100),
+                                height: bh, fill: C.progressbar });
+          }
           svgEl('rect', g, { x: xb, y: yCenter - bh, width: wb, height: bh * 2,
                               fill: 'none', stroke: '#e07800', 'stroke-width': 2 });
         }
