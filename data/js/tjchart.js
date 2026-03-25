@@ -696,6 +696,7 @@
 
   var markerHL = document.createElementNS(svgNS, 'marker');
   markerHL.setAttribute('id', 'tjArrowHL');
+  markerHL.setAttribute('markerUnits', 'userSpaceOnUse');
   markerHL.setAttribute('markerWidth', '6');
   markerHL.setAttribute('markerHeight', '6');
   markerHL.setAttribute('refX', '5');
