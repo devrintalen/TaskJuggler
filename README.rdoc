@@ -1,9 +1,7 @@
-= Interactive Gantt Charts for TaskJuggler
+= Interactive Charts for TaskJuggler
 
-TaskJuggler is a great tool. I learned about it when I was looking for
-something that I could run on linux. Being able to edit my project
-files as text is what I prefer, but the chart visualization definitely
-lacks compared to the GUI tools out there.
+TaskJuggler is a great tool. The static image charts that it produces,
+however, are not as good as the rest of it. I wanted to fix that.
 
 This branch adds a new +htmljs+ report format that renders
 TaskJuggler's full scheduling data as an interactive Gantt chart in
@@ -77,6 +75,13 @@ required.
 
 The +htmljs+ format can also be used inside a +textreport+, the same way the
 static HTML format works today.
+
+== Thanks
+
+Finally, a thanks to all the developers and contributors of TaskJuggler
+for all their work. If the features in this branch are useful at all to you,
+consider contributing back to their efforts.
+
 
 ----
 
