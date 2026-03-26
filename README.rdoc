@@ -10,7 +10,8 @@ chart allows you to see both the big picture and the details without
 needing to regenerate the report every time.
 
 link:screenshots/overview.png
-<br /><em>(The interactive Gantt chart, showing tasks, dependency arrows, and resource
+
+<em>(The interactive Gantt chart, showing tasks, dependency arrows, and resource
 load. Add <tt>formats htmljs</tt> to any taskreport or resourcereport to get this.)</em>
 
 == What's New
@@ -23,7 +24,8 @@ horizontally through the project. The chart header stays fixed as you scroll
 vertically, so you always know where you are in time.
 
 link:screenshots/pan-zoom.gif
-<br /><em>(Panning and zooming through a multi-month project schedule.)</em>
+
+<em>(Panning and zooming through a multi-month project schedule.)</em>
 
 The chart automatically adjusts its level of detail as you zoom: year and
 quarter scales show summarized resource load bars, week and day scales reveal
@@ -31,7 +33,8 @@ individual task durations, time-off zones, and hourly grid lines. Transitions
 between levels are animated so the chart never feels like it's jumping around.
 
 link:screenshots/lod-zoom.gif
-<br /><em>(Zooming from year scale down to day scale, showing automatic level-of-detail
+
+<em>(Zooming from year scale down to day scale, showing automatic level-of-detail
 transitions.)</em>
 
 === Hover Highlighting
@@ -42,7 +45,8 @@ up with an orange border and its dependency arrows are highlighted in orange —
 making it easy to trace the critical path on a busy chart.
 
 link:screenshots/hover-highlight.gif
-<br /><em>(Hovering over a task bar highlights the bar and its dependency arrows.)</em>
+
+<em>(Hovering over a task bar highlights the bar and its dependency arrows.)</em>
 
 === Tooltips
 
@@ -50,7 +54,8 @@ Hovering over a task bar shows a tooltip with the task's start date, end date,
 duration, and completion percentage, styled to match the static HTML report.
 
 link:screenshots/tooltip.png
-<br /><em>(Tooltip popup on a task bar showing scheduling details.)</em>
+
+<em>(Tooltip popup on a task bar showing scheduling details.)</em>
 
 === Off-Duty Zones
 
