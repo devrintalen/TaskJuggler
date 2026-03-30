@@ -1,68 +1,25 @@
-= Todo list for TaskJuggler 3.x
+TODO list
+---------
 
-This is a possibly still incomplete list of things that still could
-or should be done for TaskJuggler 3.x.
+[ ] Expand vertical height to fit all rows. Vertical scrolling outside
+    of the dynamic area should scroll the entire page.
 
-== Missing features for 2.x compatibility
+[ ] Fix row collapse visual bug where the blue highlight line
+    (delineating child rows) stays if the mouse cursor remains on top
+    of the triangle expand/collapse button. This means that the
+    highlight line stays visible even when the child tasks are hidden.
 
-* Add missing functions for logical expressions.
+[ ] If the project.now attribute is not specified, then the red now
+    line should be rendered up to the hour/minute of the system
+    clock. Even better, the red now line should update with the system
+    clock.
 
-* Missing reports (calendar)
+[ ] The expand/collapse triangle should be integrated with the
+    existing icon to the left of the task name somehow. I would prefer
+    something like:
 
-* More unit tests for core classes.
+    | (WBS value) | (indent value) [ICON] ▼ (Name value) | ...  EXPANDED
 
-* Lots more test cases for the test suite.
-
-== New features (probably after first stable release)
-
-* Make web server reports more dynamic with controller elements.
-
-* Add support for an optional account attribute to be
-used instead of the defined charge set.
-
-  task "Foo" {
-    charge 2000 onstart { account someacc }
-  }
-
-* Evaluate if account name space should be hierarchical.
-
-* Delta reports that show only the differences between 2 arbitrary
-  scenarios.
-
-* Per scenario purging
-
-* User defined numerical attributes that add-up.
-
-* Critical path detection after scheduling.
-
-* SVG reports
-
-* Pert charts
-
-* Highlight dependency arrows of a task with mouse-over effect.
-
-* JS Gantt chart hover highlighting: highlight the hovered row and its
-  taskbar subtly, and recursively highlight the full dependency chain
-  (ancestors) of the hovered task, dimming unrelated tasks.
-
-* Make gap ends align with certain times or days of week, day of
-  weeks or day of months.
-
-= Discontinued 2.x features
-
-TaskJuggler III should be mostly compatible with 2.x. Existing
-projects should be usable with TaskJuggler III with no to minimal
-effort. Nevertheless we will use the transition to TaskJuggler III as
-an opportunity to drop some things that have been badly designed or
-are of too little use to justify the porting efforts.
-
-There is currently no plan to port the TaskJuggler 2.x GUI due to
-lack of time/resources. Help in this area will be greatly appreciated.
-
-* XML file reading.
-
-* htmlstatusreport. This report can now be created with composed
-reports.
-
-* The syntax for reports has changed somewhat. See manual for details.
-
+    becomes:
+    
+    | (WBS value) | (indent value) [ICON] ▶ (Name value) | ...  COLLAPSED
