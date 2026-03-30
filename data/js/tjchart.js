@@ -1825,6 +1825,37 @@
     d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(scaleFactor));
   }
 
+  /* Restore the visible date range saved immediately before a live-reload.
+   * Uses date-based bounds so the view survives project domain changes.
+   * Runs after initialScale so it takes priority when present. */
+  (function () {
+    var saved = sessionStorage.getItem('tjchart-view');
+    if (!saved) { return; }
+    sessionStorage.removeItem('tjchart-view');
+    try {
+      var v   = JSON.parse(saved);
+      var lPx = baseXScale(new Date(v.l));
+      var rPx = baseXScale(new Date(v.r));
+      if (rPx - lPx > 1) {
+        var k = getChartWidth() / (rPx - lPx);
+        d3.select(svg).call(zoom.transform,
+          d3.zoomIdentity.translate(-lPx * k, 0).scale(k));
+      }
+    } catch (e) { /* malformed saved state — ignore */ }
+  })();
+
+  /* Called by the live-reload watcher just before location.reload().
+   * Captures the currently visible date range (left/right edges) so the
+   * chart can be restored to the same view after the page reloads. */
+  window._tjSaveView = function () {
+    var t  = d3.zoomTransform(svg);
+    var xt = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
+    sessionStorage.setItem('tjchart-view', JSON.stringify({
+      l: xt.invert(0).getTime(),
+      r: xt.invert(getChartWidth()).getTime()
+    }));
+  };
+
   render(currentXScale);
 
   window.addEventListener('resize', function () {
@@ -1835,4 +1866,57 @@
     scheduleRender();
   });
 
+})();
+
+/* ── Live-reload watcher ──────────────────────────────────────────────────
+ * Polls for changes to the generated HTML file and reloads when a new
+ * version is detected.  Works for http[s]:// (all browsers) and file://
+ * (Firefox; Chrome blocks same-origin file:// fetch).  Falls back to
+ * reloading on tab focus/visibility for protocols where fetch is blocked.
+ */
+(function () {
+  'use strict';
+
+  var POLL_MS = 2000;
+
+  /* Read the tj-generated timestamp embedded by TaskJuggler at report-gen time. */
+  var metaEl = document.querySelector('meta[name="tj-generated"]');
+  if (!metaEl) { return; }   /* not a TaskJuggler report — do nothing */
+
+  var initialStamp = metaEl.getAttribute('content');
+  console.log('tjchart: watching for changes (tj-generated=' + initialStamp + ')');
+
+  /* Extract the tj-generated content value from a raw HTML string. */
+  function extractStamp(html) {
+    var m = html.match(/<meta[^>]+name=["']tj-generated["'][^>]+content=["']([^"']+)["']/i)
+         || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']tj-generated["']/i);
+    return m ? m[1] : null;
+  }
+
+  /* Fetch the current page and reload if the stamp has changed. */
+  function checkForUpdate() {
+    fetch(location.href, { cache: 'no-cache' })
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        var stamp = extractStamp(text);
+        if (stamp && stamp !== initialStamp) {
+          if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+          location.reload();
+        }
+      })
+      .catch(function () {
+        /* fetch not supported for this protocol/browser — switch to focus fallback */
+        clearInterval(pollInterval);
+        function reloadWithSavedView() {
+          if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+          location.reload();
+        }
+        window.addEventListener('focus', reloadWithSavedView);
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) { reloadWithSavedView(); }
+        });
+      });
+  }
+
+  var pollInterval = setInterval(checkForUpdate, POLL_MS);
 })();
