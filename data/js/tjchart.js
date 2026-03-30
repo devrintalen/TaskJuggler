@@ -343,6 +343,7 @@
 
     /* ── Highlighted bars ── */
     rows.forEach(function (row, i) {
+      if (row._hidden) { return; }
       if ((row.rowType || 'task') !== 'task') { return; }
       if (row.id !== hoveredBarId && !chainSet.has(row.id)) { return; }
 
@@ -412,6 +413,7 @@
 
     /* ── Highlighted arrows ── */
     rows.forEach(function (row, i) {
+      if (row._hidden) { return; }
       if ((row.rowType || 'task') !== 'task') { return; }
       if (!row.depends || !row.depends.length) { return; }
 
@@ -424,7 +426,7 @@
         if (dep.id !== hoveredBarId && !chainSet.has(dep.id)) { return; }
 
         var predInfo = taskRowById[dep.id];
-        if (!predInfo) { return; }
+        if (!predInfo || predInfo.row._hidden) { return; }
         var pred = predInfo.row;
         if (!pred._end || !row._start) { return; }
 
@@ -456,13 +458,15 @@
     return ROW_H * ((row.rowSpan || 1));
   }
 
-  /* Compute array of cumulative Y offsets (one per row, plus total at end). */
+  /* Compute array of cumulative Y offsets (one per row, plus total at end).
+   * Hidden rows (r._hidden === true) contribute zero height so they are
+   * effectively removed from the chart without touching the rows array. */
   function buildYOffsets() {
     var offsets = [];
     var y = 0;
     rows.forEach(function (r) {
       offsets.push(y);
-      y += rowVisualHeight(r);
+      if (!r._hidden) { y += rowVisualHeight(r); }
     });
     offsets.push(y);  // sentinel: total chart height
     return offsets;
@@ -472,6 +476,86 @@
   var chartH   = yOffsets[yOffsets.length - 1];
   var _stripesW = -1;   // cached width for stripe invalidation
   var _panBaseT = null; // zoom transform {x,k} saved at last full render (pan fast-path)
+
+  /* ── Collapse / expand ── */
+  var collapsedIds = new Set();   // ids of currently-collapsed container rows
+
+  /* Recompute row._hidden for every row based on collapsedIds.
+   * Assumes rows are in tree order (parents appear before their children). */
+  function computeHidden() {
+    rows.forEach(function (row) {
+      var rt = row.rowType || 'task';
+      if (rt === 'task') {
+        if (!row.parent) { row._hidden = false; return; }
+        var pInfo = taskRowById[row.parent];
+        if (!pInfo) { row._hidden = false; return; }
+        row._hidden = collapsedIds.has(row.parent) || !!pInfo.row._hidden;
+      } else {
+        /* nested-resource, nested-task: scopeId is the owning task */
+        var scopeId = row.scopeId;
+        if (!scopeId) { row._hidden = false; return; }
+        var sInfo = taskRowById[scopeId];
+        if (!sInfo) { row._hidden = false; return; }
+        row._hidden = collapsedIds.has(scopeId) || !!sInfo.row._hidden;
+      }
+    });
+  }
+
+  /* Return the nearest taskRowById entry for rowId that is not hidden,
+   * walking up the task parent chain.  Returns null if no visible ancestor exists. */
+  function visibleAncestorInfo(rowId) {
+    var info = taskRowById[rowId];
+    if (!info) { return null; }
+    if (!info.row._hidden) { return info; }
+    var parentId = info.row.parent;
+    while (parentId) {
+      var pInfo = taskRowById[parentId];
+      if (!pInfo) { return null; }
+      if (!pInfo.row._hidden) { return pInfo; }
+      parentId = pInfo.row.parent;
+    }
+    return null;
+  }
+
+  /* Apply the current collapsedIds: recompute hidden state, rebuild yOffsets,
+   * update SVG height, show/hide left-panel <tr>s, refresh toggle icons,
+   * then schedule a full re-render. */
+  function applyCollapse() {
+    computeHidden();
+    yOffsets  = buildYOffsets();
+    chartH    = yOffsets[yOffsets.length - 1];
+    svg.setAttribute('height', chartH);
+    _stripesW = -1;    // force stripe redraw at new width
+    _panBaseT = null;  // force full render (not pan fast-path)
+
+    /* Re-number visible rows so stripe colours alternate correctly after collapse.
+     * rowBgs[i] is updated here; renderStripes and updateRowHighlight read it. */
+    var visIdx = 0;
+    rows.forEach(function (row, i) {
+      if (!row._trs) { return; }
+      var display = row._hidden ? 'none' : '';
+      row._trs.forEach(function (tr) { tr.style.display = display; });
+      if (row._toggleBtn) {
+        row._toggleBtn.textContent = collapsedIds.has(row.id) ? '\u25b6' : '\u25bc';
+      }
+      if (!row._hidden) {
+        var newBg = rowBgColor(row, visIdx);
+        if (newBg !== rowBgs[i]) {
+          rowBgs[i] = newBg;
+          row._trs.forEach(function (tr) { tr.style.background = newBg; });
+        }
+        visIdx++;
+      }
+    });
+
+    scheduleRender();
+  }
+
+  /* Toggle the collapsed/expanded state of the container with the given id. */
+  function toggleCollapse(id) {
+    if (collapsedIds.has(id)) { collapsedIds.delete(id); } else { collapsedIds.add(id); }
+    applyCollapse();
+  }
   /* ── Hover highlight state ── */
   var hoveredRowIdx = -1;   // index into rows[] (-1 = none)
   var hoveredBarId  = null; // row.id of the task bar under the cursor (null = none)
@@ -487,11 +571,23 @@
   var leftPanel = document.createElement('div');
   /* overflow-y:scroll reserves a fixed-width scrollbar gutter; combined with
    * width:max-content the div grows to fit the table exactly, then the
-   * scrollbar sits in the reserved gutter rather than overlapping columns.  */
+   * scrollbar sits in the reserved gutter rather than overlapping columns.
+   * position:relative is the containing block for the collapse-bracket overlay. */
   leftPanel.style.cssText =
-    'overflow-y:scroll;overflow-x:hidden;border-right:2px solid #7a7a7a;flex-shrink:0;' +
-    'width:max-content;';
+    'position:relative;overflow-y:scroll;overflow-x:hidden;' +
+    'border-right:2px solid #7a7a7a;flex-shrink:0;width:max-content;';
   wrapper.appendChild(leftPanel);
+
+  /* Bracket overlay: absolutely-positioned inside leftPanel (scrolls with content).
+   * Shown on hover of a container's toggle button to indicate which rows collapse. */
+  var bracketDiv = document.createElement('div');
+  bracketDiv.style.cssText =
+    'position:absolute;display:none;pointer-events:none;z-index:5;box-sizing:border-box;' +
+    'left:0;width:4px;' +
+    'border-left:3px solid rgba(80,120,220,0.55);' +
+    'border-top:2px solid rgba(80,120,220,0.55);' +
+    'border-bottom:2px solid rgba(80,120,220,0.55);';
+  leftPanel.appendChild(bracketDiv);
 
   var table = document.createElement('table');
   table.style.cssText = 'border-collapse:collapse;white-space:nowrap;';
@@ -521,6 +617,53 @@
   var rowTrs = [];   /* rowTrs[i] = primary <tr> (scenarioTrs[0]) for row i */
   var rowBgs = [];   /* rowBgs[i] = original rowBgColor string for row i     */
 
+  /* ── Bracket hover helpers ── */
+  /* Returns true if row is a transitive descendant of the task with ancestorId. */
+  function isDescendantOf(row, ancestorId) {
+    var rt = row.rowType || 'task';
+    if (rt === 'task') {
+      var parentId = row.parent;
+      while (parentId) {
+        if (parentId === ancestorId) { return true; }
+        var pInfo = taskRowById[parentId];
+        if (!pInfo) { return false; }
+        parentId = pInfo.row.parent;
+      }
+      return false;
+    } else {
+      var scopeId = row.scopeId;
+      if (!scopeId) { return false; }
+      if (scopeId === ancestorId) { return true; }
+      var sInfo = taskRowById[scopeId];
+      if (!sInfo) { return false; }
+      return isDescendantOf(sInfo.row, ancestorId);
+    }
+  }
+
+  /* Show the bracket overlay covering the currently-visible descendants of
+   * the container at containerIdx.  Only shown when the container is expanded. */
+  function showBracket(containerIdx) {
+    if (collapsedIds.has(rows[containerIdx].id)) { return; }  // already collapsed
+    var containerId = rows[containerIdx].id;
+    var firstTr = null, lastTr = null;
+    for (var j = containerIdx + 1; j < rows.length; j++) {
+      if (!isDescendantOf(rows[j], containerId)) { continue; }
+      if (rows[j]._hidden) { continue; }
+      var trs = rows[j]._trs;
+      if (!firstTr) { firstTr = trs[0]; }
+      lastTr = trs[trs.length - 1];
+    }
+    if (!firstTr) { return; }
+    var lpRect = leftPanel.getBoundingClientRect();
+    var ftRect = firstTr.getBoundingClientRect();
+    var ltRect = lastTr.getBoundingClientRect();
+    var top    = ftRect.top    - lpRect.top + leftPanel.scrollTop;
+    var bottom = ltRect.bottom - lpRect.top + leftPanel.scrollTop;
+    bracketDiv.style.top    = top + 'px';
+    bracketDiv.style.height = (bottom - top) + 'px';
+    bracketDiv.style.display = 'block';
+  }
+
   rows.forEach(function (row, i) {
     var span    = row.rowSpan || 1;
     var rowType = row.rowType || 'task';
@@ -541,6 +684,7 @@
       scenarioTrs.push(tr2);
     }
 
+    row._trs = scenarioTrs;   /* saved for show/hide during collapse */
     rowTrs.push(scenarioTrs[0]);
     rowBgs.push(bg);
 
@@ -570,6 +714,32 @@
           var nameDiv = document.createElement('div');
           nameDiv.style.cssText =
             'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
+
+          /* Toggle button — only for container task rows */
+          if (isTask && row._isContainer) {
+            (function (rowId, rowIdx) {
+              var btn = document.createElement('span');
+              btn.textContent = '\u25bc';   /* ▼ expanded; ▶ when collapsed */
+              btn.style.cssText =
+                'flex-shrink:0;width:12px;text-align:center;font-size:8px;' +
+                'line-height:1;cursor:pointer;user-select:none;color:#444;' +
+                'margin-right:1px;';
+              btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                toggleCollapse(rowId);
+              });
+              btn.addEventListener('mouseenter', function () { showBracket(rowIdx); });
+              btn.addEventListener('mouseleave', function () { bracketDiv.style.display = 'none'; });
+              row._toggleBtn = btn;
+              nameDiv.appendChild(btn);
+            }(row.id, i));
+          } else {
+            /* Non-container: reserve the same 13px so columns stay aligned */
+            var btnSpacer = document.createElement('span');
+            btnSpacer.style.cssText = 'flex-shrink:0;width:13px;';
+            nameDiv.appendChild(btnSpacer);
+          }
+
           if (indentPx > 0) {
             var spacer = document.createElement('span');
             spacer.style.cssText = 'display:inline-block;flex-shrink:0;width:' + indentPx + 'px;';
@@ -1118,9 +1288,10 @@
     _stripesW = w;
     clearG(gStripes);
     rows.forEach(function (row, i) {
+      if (row._hidden) { return; }
       var y = yOffsets[i];
       var h = rowVisualHeight(row);
-      svgEl('rect', gStripes, { x: 0, y: y, width: w, height: h, fill: rowBgColor(row, i) });
+      svgEl('rect', gStripes, { x: 0, y: y, width: w, height: h, fill: rowBgs[i] });
       svgEl('line', gStripes, { x1: 0, y1: y + h - 0.5, x2: w, y2: y + h - 0.5,
                                  stroke: C.headerBorder, 'stroke-width': 1 });
     });
@@ -1136,6 +1307,7 @@
     var w       = getChartWidth();
     var allData = [];
     rows.forEach(function (row, i) {
+      if (row._hidden) { return; }
       if ((row.rowType || 'task') !== 'task') { return; }
       var y      = yOffsets[i];
       var h      = rowVisualHeight(row);
@@ -1164,11 +1336,16 @@
       .attr('opacity', 1);
 
     /* Update: existing zones always update position instantly.
+     * y and h are updated here in addition to x/width so that collapse/expand
+     * events (which shift yOffsets for rows below the hidden section) are
+     * reflected without requiring a full D3 exit/re-enter cycle.
      * opacity is reset to 1 in case the element was mid-fade-out when it
      * re-entered the update selection (e.g. zoom reversal before exit completes). */
     sel.interrupt()
       .attr('x',       function (d) { return d.x; })
+      .attr('y',       function (d) { return d.y; })
       .attr('width',   function (d) { return d.width; })
+      .attr('height',  function (d) { return d.h; })
       .attr('opacity', 1);
 
     /* Exit: zones that become too narrow fade out then are removed. */
@@ -1196,8 +1373,9 @@
       .join(function (enter) {
         return enter.append('line')
           .attr('stroke', C.gridLine).attr('stroke-width', 1)
-          .attr('y1', 0).attr('y2', chartH);
+          .attr('y1', 0);
       })
+      .attr('y2', chartH)
       .attr('x1', function (d) { return d.x; })
       .attr('x2', function (d) { return d.x; });
   }
@@ -1228,6 +1406,7 @@
     var w = getChartWidth();
 
     rows.forEach(function (row, i) {
+      if (row._hidden) { return; }
       var rowType = row.rowType || 'task';
       var y0      = yOffsets[i];
 
@@ -1519,38 +1698,54 @@
   /* Render SVG path dependency arrows for all task rows in the primary scenario.
    * Each arrow runs from the end of the predecessor to the start of the successor.
    * Inherited dependencies (shared with a parent task) are skipped to avoid clutter.
-   * Arrow routing: if there is horizontal room, a simple three-segment path is used;
-   * otherwise a stepped detour routes around the overlapping bars.
+   * When either endpoint is hidden (collapsed), the arrow is rerouted to the nearest
+   * visible ancestor.  Arrows that resolve to the same visible row are dropped.
+   * Duplicate rerouted arrows (multiple hidden children → same ancestor pair) are
+   * deduplicated via a drawn-pair set.
    * xScale — current D3 UTC scale. */
   function renderArrows(xScale) {
     clearG(gArrows);
+    var drawn = Object.create(null);  /* "predId->succId" → true, for dedup */
 
     rows.forEach(function (row, i) {
       if ((row.rowType || 'task') !== 'task') { return; }
       if (!row.depends || !row.depends.length) { return; }
+
       row.depends.forEach(function (dep) {
         if ((dep.scenario || sc0) !== sc0) { return; }
         var predInfo = taskRowById[dep.id];
         if (!predInfo) { return; }
-        var pred = predInfo.row;
-        if (!pred._end || !row._start) { return; }
 
-        /* Skip inherited dependencies. */
-        if (row.parent) {
+        /* Resolve visible proxy for each endpoint. */
+        var succInfo = visibleAncestorInfo(row.id);
+        var pInfo    = visibleAncestorInfo(dep.id);
+        if (!succInfo || !pInfo) { return; }
+        if (succInfo.row.id === pInfo.row.id) { return; }  /* degenerate */
+
+        /* Deduplicate rerouted pairs. */
+        var key = pInfo.row.id + '->' + succInfo.row.id;
+        if (drawn[key]) { return; }
+        drawn[key] = true;
+
+        /* Skip inherited dependencies only when neither endpoint was rerouted. */
+        if (!row._hidden && !predInfo.row._hidden && row.parent) {
           var parentInfo = taskRowById[row.parent];
           if (parentInfo && parentInfo.row.depends && parentInfo.row.depends.some(function (pd) {
             return pd.id === dep.id && (pd.scenario || sc0) === sc0;
           })) { return; }
         }
 
-        var sx = xScale(pred._end);
-        var sy = yOffsets[predInfo.idx] + ROW_H / 2;
-        var ex = xScale(row._start);
-        var ey = yOffsets[i] + ROW_H / 2;
+        var pred = pInfo.row;
+        var succ = succInfo.row;
+        if (!pred._end || !succ._start) { return; }
 
-        var pathStr = routeArrow(sx, sy, ex, ey);
+        var sx = xScale(pred._end);
+        var sy = yOffsets[pInfo.idx] + ROW_H / 2;
+        var ex = xScale(succ._start);
+        var ey = yOffsets[succInfo.idx] + ROW_H / 2;
+
         svgEl('path', gArrows, {
-          d: pathStr, fill: 'none', stroke: C.depline,
+          d: routeArrow(sx, sy, ex, ey), fill: 'none', stroke: C.depline,
           'stroke-width': 1, 'marker-end': 'url(#tjArrow)'
         });
       });
