@@ -1303,8 +1303,11 @@
    * the enter selection as the user zooms in and out.
    * Zones beyond TIMEOFF_PAN_MARGIN px outside the viewport are excluded
    * to prevent spurious enter/exit fades while panning. */
+  var _timeOffFirstRender = true;
   function renderTimeOff(xScale) {
     var w       = getChartWidth();
+    var firstRender = _timeOffFirstRender;
+    _timeOffFirstRender = false;
     var allData = [];
     rows.forEach(function (row, i) {
       if (row._hidden) { return; }
@@ -1324,16 +1327,19 @@
     var sel = d3.select(gTimeOff).selectAll('rect')
       .data(allData, function (d) { return d.key; });
 
-    /* Enter: zones fade in when they grow wide enough. */
-    sel.enter().append('rect')
+    /* Enter: zones fade in when they grow wide enough.
+     * On the first render (including after live-reload) skip the fade so
+     * bars don't flash in from opacity 0 before the view is restored. */
+    var entering = sel.enter().append('rect')
       .attr('y',       function (d) { return d.y; })
       .attr('height',  function (d) { return d.h; })
       .attr('fill',    C.offduty)
       .attr('x',       function (d) { return d.x; })
       .attr('width',   function (d) { return d.width; })
-      .attr('opacity', 0)
-      .transition().duration(LOD_FADE_MS)
-      .attr('opacity', 1);
+      .attr('opacity', firstRender ? 1 : 0);
+    if (!firstRender) {
+      entering.transition().duration(LOD_FADE_MS).attr('opacity', 1);
+    }
 
     /* Update: existing zones always update position instantly.
      * y and h are updated here in addition to x/width so that collapse/expand
