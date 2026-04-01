@@ -23,3 +23,13 @@ TODO list
     becomes:
     
     | (WBS value) | (indent value) [ICON] ▶ (Name value) | ...  COLLAPSED
+
+[ ] Total eye candy feature: during auto-refresh updates of the chart
+    content, tasks should animate into position:
+
+    - Tasks that change duration should shrink/expand
+
+    - Tasks that change start or end date should slide
+
+    - Arrows should stay attached to the start/end of the task bars
+      during the animation.
