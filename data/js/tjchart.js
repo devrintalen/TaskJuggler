@@ -563,18 +563,15 @@
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
-    'display:flex;width:100%;height:600px;overflow:hidden;' +
+    'display:flex;width:100%;' +
     'font-family:sans-serif;font-size:11px;border:2px solid #9a9a9a;';
   container.appendChild(wrapper);
 
   /* ── Left panel ── */
   var leftPanel = document.createElement('div');
-  /* overflow-y:scroll reserves a fixed-width scrollbar gutter; combined with
-   * width:max-content the div grows to fit the table exactly, then the
-   * scrollbar sits in the reserved gutter rather than overlapping columns.
-   * position:relative is the containing block for the collapse-bracket overlay. */
+  /* position:relative is the containing block for the collapse-bracket overlay. */
   leftPanel.style.cssText =
-    'position:relative;overflow-y:scroll;overflow-x:hidden;' +
+    'position:relative;overflow:visible;' +
     'border-right:2px solid #7a7a7a;flex-shrink:0;width:max-content;';
   wrapper.appendChild(leftPanel);
 
@@ -657,8 +654,8 @@
     var lpRect = leftPanel.getBoundingClientRect();
     var ftRect = firstTr.getBoundingClientRect();
     var ltRect = lastTr.getBoundingClientRect();
-    var top    = ftRect.top    - lpRect.top + leftPanel.scrollTop;
-    var bottom = ltRect.bottom - lpRect.top + leftPanel.scrollTop;
+    var top    = ftRect.top    - lpRect.top;
+    var bottom = ltRect.bottom - lpRect.top;
     bracketDiv.style.top    = top + 'px';
     bracketDiv.style.height = (bottom - top) + 'px';
     bracketDiv.style.display = 'block';
@@ -821,15 +818,16 @@
     }
   }
 
-  /* ── Right column: fixed header + scrollable body ── */
+  /* ── Right column: sticky header + body ── */
   var rightColumn = document.createElement('div');
   rightColumn.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;';
   wrapper.appendChild(rightColumn);
 
-  /* Fixed (non-scrolling) header strip */
+  /* Sticky header strip — sticks to viewport top during page scroll */
   var rightHeader = document.createElement('div');
   rightHeader.style.cssText =
-    'flex-shrink:0;overflow:hidden;height:' + HDR_H + 'px;';
+    'position:sticky;top:0;z-index:10;' +
+    'flex-shrink:0;overflow:hidden;height:' + HDR_H + 'px;background:#fff;';
   rightColumn.appendChild(rightHeader);
 
   /* ── SVG ── */
@@ -842,9 +840,9 @@
   hdrSvg.style.cssText = 'display:block;overflow:hidden;';
   rightHeader.appendChild(hdrSvg);
 
-  /* Scrollable body area */
+  /* Body area — no internal scroll; page scrolls instead */
   var rightBody = document.createElement('div');
-  rightBody.style.cssText = 'flex:1;overflow-y:scroll;overflow-x:hidden;';
+  rightBody.style.cssText = 'overflow:hidden;';
   rightColumn.appendChild(rightBody);
 
   /* Body SVG — scrolls with rightBody */
@@ -944,6 +942,12 @@
 
   var zoom = d3.zoom()
     .scaleExtent([0.02, 500])
+    /* Only zoom on Ctrl+wheel (timescale zoom) and pointer drag (pan).
+     * Plain wheel scrolls the page naturally. */
+    .filter(function (event) {
+      if (event.type === 'wheel') { return event.ctrlKey; }
+      return !event.button;   // default: allow primary-button drag
+    })
     .on('zoom', function (event) {
       var t  = event.transform;
       var xt = d3.zoomIdentity.translate(t.x, 0).scale(t.k);
@@ -952,33 +956,23 @@
     });
 
   /* Zoom is applied only to the body SVG so a single zoom state is tracked.
-   * Wheel events on the header SVG are forwarded to the body SVG. */
+   * Ctrl+wheel events on the header SVG are forwarded to the body SVG. */
   d3.select(svg).call(zoom);
-  svg.addEventListener('wheel', function (e) { e.preventDefault(); }, { passive: false });
-  hdrSvg.addEventListener('wheel', function (e) {
-    e.preventDefault();
-    svg.dispatchEvent(new WheelEvent('wheel', e));
+  /* Prevent browser zoom on Ctrl+wheel over the chart SVGs */
+  svg.addEventListener('wheel', function (e) {
+    if (e.ctrlKey) { e.preventDefault(); }
   }, { passive: false });
-
-  /* ── Synchronise vertical scroll ── */
-  var _scrollLock = false;
-  leftPanel.addEventListener('scroll', function () {
-    if (_scrollLock) { return; }
-    _scrollLock = true;
-    rightBody.scrollTop = leftPanel.scrollTop;
-    _scrollLock = false;
-  });
-  rightBody.addEventListener('scroll', function () {
-    if (_scrollLock) { return; }
-    _scrollLock = true;
-    leftPanel.scrollTop = rightBody.scrollTop;
-    _scrollLock = false;
-  });
+  hdrSvg.addEventListener('wheel', function (e) {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      svg.dispatchEvent(new WheelEvent('wheel', e));
+    }
+  }, { passive: false });
 
   /* Row highlight from SVG body hover */
   rightBody.addEventListener('mousemove', function (e) {
     var rect = rightBody.getBoundingClientRect();
-    var y    = e.clientY - rect.top + rightBody.scrollTop;
+    var y    = e.clientY - rect.top;
     /* Binary search yOffsets for the row containing y */
     var lo = 0, hi = rows.length - 1, idx = -1;
     while (lo <= hi) {
