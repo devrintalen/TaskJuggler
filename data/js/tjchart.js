@@ -940,8 +940,11 @@
     });
   }
 
+  var ZOOM_SPEED = 0.0014;  // zoom sensitivity: scale change per wheel pixel
+
   var zoom = d3.zoom()
-    .scaleExtent([0.02, 500])
+    .scaleExtent([0.02, 100])
+    .wheelDelta(function (event) { return -event.deltaY * ZOOM_SPEED; })
     /* Only zoom on Ctrl+wheel (timescale zoom) and pointer drag (pan).
      * Plain wheel scrolls the page naturally. */
     .filter(function (event) {
