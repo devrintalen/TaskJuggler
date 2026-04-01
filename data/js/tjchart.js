@@ -717,40 +717,43 @@
           nameDiv.style.cssText =
             'display:flex;align-items:center;overflow:hidden;white-space:nowrap;';
 
-          /* Toggle button — only for container task rows */
-          if (isTask && row._isContainer) {
-            (function (rowId, rowIdx) {
-              var btn = document.createElement('span');
-              btn.textContent = '\u25bc';   /* ▼ expanded; ▶ when collapsed */
-              btn.style.cssText =
-                'flex-shrink:0;width:12px;text-align:center;font-size:8px;' +
-                'line-height:1;cursor:pointer;user-select:none;color:#444;' +
-                'margin-right:1px;';
-              btn.addEventListener('click', function (e) {
-                e.stopPropagation();
-                toggleCollapse(rowId, rowIdx);
-              });
-              btn.addEventListener('mouseenter', function () { showBracket(rowIdx); });
-              btn.addEventListener('mouseleave', function () { bracketDiv.style.display = 'none'; });
-              row._toggleBtn = btn;
-              nameDiv.appendChild(btn);
-            }(row.id, i));
-          } else {
-            /* Non-container: reserve the same 13px so columns stay aligned */
-            var btnSpacer = document.createElement('span');
-            btnSpacer.style.cssText = 'flex-shrink:0;width:13px;';
-            nameDiv.appendChild(btnSpacer);
-          }
-
           if (indentPx > 0) {
             var spacer = document.createElement('span');
             spacer.style.cssText = 'display:inline-block;flex-shrink:0;width:' + indentPx + 'px;';
             nameDiv.appendChild(spacer);
           }
-          if (iconBase) {
-            var isTaskLike = isTask || rowType === 'nested-task';
+          var isTaskLike = isTask || rowType === 'nested-task';
+          if (isTask && row._isContainer) {
+            /* Wrap icon + triangle in a single hit target for easier clicking */
+            (function (rowId, rowIdx) {
+              var hitTarget = document.createElement('span');
+              hitTarget.style.cssText =
+                'display:inline-flex;align-items:center;flex-shrink:0;' +
+                'cursor:pointer;user-select:none;';
+              if (iconBase) {
+                var img = document.createElement('img');
+                img.src = iconBase + (isTaskLike ? 'taskgroup' : 'resourcegroup') + '.png';
+                img.style.cssText = 'flex-shrink:0;margin-right:3px;';
+                hitTarget.appendChild(img);
+              }
+              var btn = document.createElement('span');
+              btn.textContent = '\u25bc';   /* ▼ expanded; ▶ when collapsed */
+              btn.style.cssText =
+                'flex-shrink:0;width:12px;text-align:center;font-size:8px;' +
+                'line-height:1;color:#444;';
+              row._toggleBtn = btn;
+              hitTarget.appendChild(btn);
+              hitTarget.addEventListener('click', function (e) {
+                e.stopPropagation();
+                toggleCollapse(rowId, rowIdx);
+              });
+              hitTarget.addEventListener('mouseenter', function () { showBracket(rowIdx); });
+              hitTarget.addEventListener('mouseleave', function () { bracketDiv.style.display = 'none'; });
+              nameDiv.appendChild(hitTarget);
+            }(row.id, i));
+          } else if (iconBase) {
             var iconName = isTaskLike
-              ? (row._isContainer ? 'taskgroup' : 'task')
+              ? 'task'
               : (row.isLeaf ? 'resource' : 'resourcegroup');
             var img = document.createElement('img');
             img.src = iconBase + iconName + '.png';

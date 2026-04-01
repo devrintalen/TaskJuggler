@@ -17,7 +17,7 @@ completed.
     clock. Even better, the red now line should update with the system
     clock.
 
-[ ] The expand/collapse triangle should be integrated with the
+[X] The expand/collapse triangle should be integrated with the
     existing icon to the left of the task name somehow. I would prefer
     something like:
 
