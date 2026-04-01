@@ -1,10 +1,13 @@
 TODO list
 ---------
 
-[ ] Expand vertical height to fit all rows. Vertical scrolling outside
+Keep track of TODO items by marking the [ ] boxes as [X] when
+completed.
+
+[X] Expand vertical height to fit all rows. Vertical scrolling outside
     of the dynamic area should scroll the entire page.
 
-[ ] Fix row collapse visual bug where the blue highlight line
+[X] Fix row collapse visual bug where the blue highlight line
     (delineating child rows) stays if the mouse cursor remains on top
     of the triangle expand/collapse button. This means that the
     highlight line stays visible even when the child tasks are hidden.

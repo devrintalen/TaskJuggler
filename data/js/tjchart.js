@@ -525,8 +525,9 @@
     yOffsets  = buildYOffsets();
     chartH    = yOffsets[yOffsets.length - 1];
     svg.setAttribute('height', chartH);
-    _stripesW = -1;    // force stripe redraw at new width
-    _panBaseT = null;  // force full render (not pan fast-path)
+    _stripesW = -1;            // force stripe redraw at new width
+    _panBaseT = null;          // force full render (not pan fast-path)
+    _timeOffFirstRender = true; // skip fade-in on newly-visible time-off bars
 
     /* Re-number visible rows so stripe colours alternate correctly after collapse.
      * rowBgs[i] is updated here; renderStripes and updateRowHighlight read it. */
@@ -552,9 +553,13 @@
   }
 
   /* Toggle the collapsed/expanded state of the container with the given id. */
-  function toggleCollapse(id) {
-    if (collapsedIds.has(id)) { collapsedIds.delete(id); } else { collapsedIds.add(id); }
+  function toggleCollapse(id, containerIdx) {
+    var wasCollapsed = collapsedIds.has(id);
+    if (wasCollapsed) { collapsedIds.delete(id); } else { collapsedIds.add(id); }
+    bracketDiv.style.display = 'none';
     applyCollapse();
+    /* After expanding, re-show the bracket since the cursor is still on the button */
+    if (wasCollapsed) { showBracket(containerIdx); }
   }
   /* ── Hover highlight state ── */
   var hoveredRowIdx = -1;   // index into rows[] (-1 = none)
@@ -723,7 +728,7 @@
                 'margin-right:1px;';
               btn.addEventListener('click', function (e) {
                 e.stopPropagation();
-                toggleCollapse(rowId);
+                toggleCollapse(rowId, rowIdx);
               });
               btn.addEventListener('mouseenter', function () { showBracket(rowIdx); });
               btn.addEventListener('mouseleave', function () { bracketDiv.style.display = 'none'; });
