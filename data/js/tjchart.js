@@ -917,6 +917,7 @@
   var gArrows       = makeG('tj-arrows',        gBody);
   var gBarHighlight = makeG('tj-bar-highlight', gBody);
   var gNow          = makeG('tj-now',           gBody);
+  var gNowLive      = makeG('tj-now-live',     gBody);
   var gGrid         = makeG('tj-grid',          gBody);
   gBarHighlight.style.pointerEvents = 'none';
 
@@ -1402,7 +1403,20 @@
     var w = getChartWidth();
     if (x >= -RENDER_MARGIN && x <= w + RENDER_MARGIN) {
       svgEl('line', gNow, { x1: x, y1: 0, x2: x, y2: chartH,
-                             stroke: C.nowline, 'stroke-width': 1 });
+                             stroke: C.nowline, 'stroke-width': 0.5 });
+    }
+  }
+
+  /* ── Live now line (system clock) ── */
+  /* A second red line showing the current system time, updated every 60s. */
+  function renderNowLive(xScale) {
+    clearG(gNowLive);
+    var x = xScale(new Date());
+    var w = getChartWidth();
+    if (x >= -RENDER_MARGIN && x <= w + RENDER_MARGIN) {
+      svgEl('line', gNowLive, { x1: x, y1: 0, x2: x, y2: chartH,
+                                 stroke: C.nowline, 'stroke-width': 1,
+                                 'stroke-dasharray': '4,3' });
     }
   }
 
@@ -1791,6 +1805,7 @@
         gBarHighlight.setAttribute('transform', xlate);
         gGrid.setAttribute('transform',         xlate);
         gNow.setAttribute('transform',          xlate);
+        gNowLive.setAttribute('transform',      xlate);
         gTimeOff.setAttribute('transform',      xlate);
         gArrows.setAttribute('transform',       xlate);
         renderHeader(xScale, lod);
@@ -1804,6 +1819,7 @@
     gBarHighlight.removeAttribute('transform');
     gGrid.removeAttribute('transform');
     gNow.removeAttribute('transform');
+    gNowLive.removeAttribute('transform');
     gTimeOff.removeAttribute('transform');
     gArrows.removeAttribute('transform');
 
@@ -1812,6 +1828,7 @@
     fadeTimeOff.update(true, function () { renderTimeOff(xScale); });
     renderGrid(xScale, lod);
     renderNowLine(xScale);
+    renderNowLive(xScale);
     renderBars(xScale, lod);
     fadeArrows.update(lod.showArrows, function () { renderArrows(xScale); });
     _lastXScale = xScale;        /* capture for updateBarHighlight() */
@@ -1876,6 +1893,12 @@
     currentXScale = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
     scheduleRender();
   });
+
+  /* ── Live now-line update ── */
+  /* Advance the live now-line every 60 seconds to track the system clock. */
+  setInterval(function () {
+    renderNowLive(currentXScale);
+  }, 60000);
 
 })();
 

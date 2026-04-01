@@ -12,7 +12,7 @@ completed.
     of the triangle expand/collapse button. This means that the
     highlight line stays visible even when the child tasks are hidden.
 
-[ ] If the project.now attribute is not specified, then the red now
+[X] If the project.now attribute is not specified, then the red now
     line should be rendered up to the hour/minute of the system
     clock. Even better, the red now line should update with the system
     clock.
