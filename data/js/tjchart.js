@@ -563,7 +563,7 @@
   /* ───────────────────────── DOM Structure ───────────────────────────── */
   var wrapper = document.createElement('div');
   wrapper.style.cssText =
-    'display:flex;width:100%;' +
+    'display:flex;width:100%;box-sizing:border-box;' +
     'font-family:sans-serif;font-size:11px;border:2px solid #9a9a9a;';
   container.appendChild(wrapper);
 
