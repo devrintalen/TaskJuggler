@@ -42,7 +42,8 @@
     loadstackframe : '#452a2a',
     loadAssigned   : '#ff3b3b',   /* .assigned */
     loadBusy       : '#ff9b9b',   /* .busy */
-    loadFree       : '#a5ffb5'    /* .free */
+    loadFree       : '#a5ffb5',   /* .free */
+    rowActive      : 'rgba(255,210,0,0.35)'
   };
 
   /* Category name → fill colour */
@@ -278,11 +279,6 @@
     return 'rgba(255,212,176,0.6)';
   }
 
-  /* Return the persistent highlight colour for the editor-active task row. */
-  function rowActiveColor() {
-    return 'rgba(255,210,0,0.35)';
-  }
-
   /* Return a Set of all transitive predecessor task ids for the given rowId,
    * following row.depends links in the primary scenario (sc0).
    * Result is cached permanently (tjGanttData is static for the page lifetime). */
@@ -313,7 +309,7 @@
     if (updateRowHighlight._prev >= 0) {
       var prevIdx = updateRowHighlight._prev;
       rowTrs[prevIdx].style.backgroundColor =
-        (prevIdx === activeTaskRowIdx) ? rowActiveColor() : rowBgs[prevIdx];
+        (prevIdx === activeTaskRowIdx) ? C.rowActive : rowBgs[prevIdx];
     }
     updateRowHighlight._prev = hoveredRowIdx;
 
@@ -356,12 +352,12 @@
       var row = rows[activeTaskRowIdx];
       if (!row._hidden) {
         if (activeTaskRowIdx !== hoveredRowIdx) {
-          rowTrs[activeTaskRowIdx].style.backgroundColor = rowActiveColor();
+          rowTrs[activeTaskRowIdx].style.backgroundColor = C.rowActive;
         }
         svgEl('rect', gActiveTaskHighlight, {
           x: 0, y: yOffsets[activeTaskRowIdx],
           width: getChartWidth(), height: rowVisualHeight(row) - 1,
-          fill: rowActiveColor()
+          fill: C.rowActive
         });
       }
     }
@@ -589,7 +585,9 @@
       }
     });
 
-    updateActiveTaskHighlight();
+    if (activeTaskRowIdx >= 0 || updateActiveTaskHighlight._prev >= 0) {
+      updateActiveTaskHighlight();
+    }
     scheduleRender();
   }
 
@@ -2023,21 +2021,22 @@
   'use strict';
 
   var CURSOR_POLL_MS = 300;
-  var lastTaskId = undefined;   /* undefined = not yet loaded */
+  var lastTaskId = null;
   var pending    = false;       /* true while a script tag is in flight */
 
   function checkCursor() {
-    if (pending) { return; }
+    if (pending || document.hidden) { return; }
     pending = true;
 
+    /* Clear before injecting so onerror (file absent) reads undefined, not a
+     * stale value left by the previous successful load. */
+    window._tjCursorTaskId = undefined;
     var script = document.createElement('script');
     script.src = 'js/tj-cursor.js?t=' + Date.now();
 
     function done() {
       pending = false;
-      var taskId = (typeof window._tjCursorTaskId !== 'undefined')
-                     ? (window._tjCursorTaskId || null)
-                     : null;
+      var taskId = window._tjCursorTaskId || null;
       if (taskId !== lastTaskId) {
         lastTaskId = taskId;
         if (typeof window._tjSetActiveTask === 'function') {
