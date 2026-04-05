@@ -42,7 +42,8 @@
     loadstackframe : '#452a2a',
     loadAssigned   : '#ff3b3b',   /* .assigned */
     loadBusy       : '#ff9b9b',   /* .busy */
-    loadFree       : '#a5ffb5'    /* .free */
+    loadFree       : '#a5ffb5',   /* .free */
+    rowActive      : 'rgba(255,210,0,0.35)'
   };
 
   /* Category name → fill colour */
@@ -304,9 +305,11 @@
    * Reverts the previous highlighted <tr>, sets the new one, and redraws
    * gRowHighlight with a single full-width rect at the hovered row's Y. */
   function updateRowHighlight() {
-    /* Revert any previously highlighted <tr> */
+    /* Revert any previously highlighted <tr>, restoring active-task colour if needed. */
     if (updateRowHighlight._prev >= 0) {
-      rowTrs[updateRowHighlight._prev].style.backgroundColor = rowBgs[updateRowHighlight._prev];
+      var prevIdx = updateRowHighlight._prev;
+      rowTrs[prevIdx].style.backgroundColor =
+        (prevIdx === activeTaskRowIdx) ? C.rowActive : rowBgs[prevIdx];
     }
     updateRowHighlight._prev = hoveredRowIdx;
 
@@ -327,6 +330,39 @@
     }
   }
   updateRowHighlight._prev = -1;
+
+  /* Index of the editor-active task row (-1 = none).  Set by _tjSetActiveTask. */
+  var activeTaskRowIdx = -1;
+
+  /* Update the persistent active-task highlight driven by tj-cursor.json.
+   * Reverts the previous active row (unless it is also hovered), sets the new
+   * one, and redraws gActiveTaskHighlight with a rect at the row's Y offset. */
+  function updateActiveTaskHighlight() {
+    if (updateActiveTaskHighlight._prev >= 0) {
+      var prevIdx = updateActiveTaskHighlight._prev;
+      /* Only revert the TR colour when the row is not currently hovered. */
+      if (prevIdx !== hoveredRowIdx) {
+        rowTrs[prevIdx].style.backgroundColor = rowBgs[prevIdx];
+      }
+    }
+    updateActiveTaskHighlight._prev = activeTaskRowIdx;
+
+    clearG(gActiveTaskHighlight);
+    if (activeTaskRowIdx >= 0) {
+      var row = rows[activeTaskRowIdx];
+      if (!row._hidden) {
+        if (activeTaskRowIdx !== hoveredRowIdx) {
+          rowTrs[activeTaskRowIdx].style.backgroundColor = C.rowActive;
+        }
+        svgEl('rect', gActiveTaskHighlight, {
+          x: 0, y: yOffsets[activeTaskRowIdx],
+          width: getChartWidth(), height: rowVisualHeight(row) - 1,
+          fill: C.rowActive
+        });
+      }
+    }
+  }
+  updateActiveTaskHighlight._prev = -1;
 
   /* Update the bar/arrow highlight overlay (gBarHighlight).
    * When hoveredBarId is set, redraws highlighted bars and in-chain arrows
@@ -549,6 +585,9 @@
       }
     });
 
+    if (activeTaskRowIdx >= 0 || updateActiveTaskHighlight._prev >= 0) {
+      updateActiveTaskHighlight();
+    }
     scheduleRender();
   }
 
@@ -909,11 +948,12 @@
   var gHeaderSm = makeG('tj-header-small', gHeader);
 
   /* Body groups live in svg (the scrollable body SVG); no Y translate needed */
-  var gBody         = makeG('tj-body');
-  var gStripes      = makeG('tj-stripes',       gBody);
-  var gTimeOff      = makeG('tj-timeoff',       gBody);
-  var gRowHighlight = makeG('tj-row-highlight', gBody);
-  var gBars         = makeG('tj-bars',          gBody);
+  var gBody              = makeG('tj-body');
+  var gStripes           = makeG('tj-stripes',            gBody);
+  var gTimeOff           = makeG('tj-timeoff',            gBody);
+  var gRowHighlight      = makeG('tj-row-highlight',      gBody);
+  var gActiveTaskHighlight = makeG('tj-active-task',      gBody);
+  var gBars              = makeG('tj-bars',               gBody);
   var gArrows       = makeG('tj-arrows',        gBody);
   var gBarHighlight = makeG('tj-bar-highlight', gBody);
   var gNow          = makeG('tj-now',           gBody);
@@ -1872,6 +1912,18 @@
     } catch (e) { /* malformed saved state — ignore */ }
   })();
 
+  /* Called by the cursor-tracking poller (see bottom of file) when the active
+   * task ID changes.  taskId is the full dotted TJ3 id (e.g. "proj.phase.t1")
+   * or null to clear the highlight. */
+  window._tjSetActiveTask = function (taskId) {
+    var entry = taskId ? taskRowById[taskId] : null;
+    var newIdx = entry ? entry.idx : -1;
+    if (newIdx !== activeTaskRowIdx) {
+      activeTaskRowIdx = newIdx;
+      updateActiveTaskHighlight();
+    }
+  };
+
   /* Called by the live-reload watcher just before location.reload().
    * Captures the currently visible date range (left/right edges) so the
    * chart can be restored to the same view after the page reloads. */
@@ -1953,4 +2005,51 @@
   }
 
   var pollInterval = setInterval(checkForUpdate, POLL_MS);
+})();
+
+/* ── Cursor-tracking poller ───────────────────────────────────────────────
+ * Polls tj-cursor.js (written by taskjuggler-mode.el) and calls
+ * _tjSetActiveTask to highlight the task currently at point in Emacs.
+ * Uses a short interval (300 ms) so the highlight feels responsive.
+ * Fails silently when the file does not exist (e.g. before the first save).
+ *
+ * Uses a dynamic <script> tag instead of fetch() so it works under the
+ * file:// protocol without triggering CORS errors in Firefox/Chrome.
+ * The script sets window._tjCursorTaskId; we read that after it loads.
+ */
+(function () {
+  'use strict';
+
+  var CURSOR_POLL_MS = 300;
+  var lastTaskId = null;
+  var pending    = false;       /* true while a script tag is in flight */
+
+  function checkCursor() {
+    if (pending || document.hidden) { return; }
+    pending = true;
+
+    /* Clear before injecting so onerror (file absent) reads undefined, not a
+     * stale value left by the previous successful load. */
+    window._tjCursorTaskId = undefined;
+    var script = document.createElement('script');
+    script.src = 'js/tj-cursor.js?t=' + Date.now();
+
+    function done() {
+      pending = false;
+      var taskId = window._tjCursorTaskId || null;
+      if (taskId !== lastTaskId) {
+        lastTaskId = taskId;
+        if (typeof window._tjSetActiveTask === 'function') {
+          window._tjSetActiveTask(taskId);
+        }
+      }
+      if (script.parentNode) { script.parentNode.removeChild(script); }
+    }
+
+    script.onload  = done;
+    script.onerror = done;   /* file not yet present — treat as null */
+    document.head.appendChild(script);
+  }
+
+  setInterval(checkCursor, CURSOR_POLL_MS);
 })();
