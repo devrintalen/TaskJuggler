@@ -830,6 +830,31 @@
       });
     }(i));
 
+    /* Row click: update active highlight + POST task ID to /cursor so the
+     * editor can jump to the task definition.
+     * Only wired for task rows; resource/nested rows are skipped.
+     * The container-toggle hitTarget calls e.stopPropagation() so its click
+     * never reaches the <tr> — no extra guard needed here. */
+    (function (rowRef) {
+      if ((rowRef.rowType || 'task') !== 'task') { return; }
+      scenarioTrs.forEach(function (t) {
+        t.addEventListener('click', function () {
+          /* 1. Update active highlight immediately (same path as SSE/poller). */
+          if (typeof window._tjSetActiveTask === 'function') {
+            window._tjSetActiveTask(rowRef.id);
+          }
+
+          /* 2. Notify the server so it writes the click pipe of tj-cursor.js.
+           *    Fails silently when loaded as file:// (no server present). */
+          fetch('/cursor', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ id: rowRef.id })
+          }).catch(function () {});
+        });
+      });
+    }(row));
+
     scenarioTrs.forEach(function (t) { tbody.appendChild(t); });
   });
 
@@ -2007,49 +2032,84 @@
   var pollInterval = setInterval(checkForUpdate, POLL_MS);
 })();
 
-/* ── Cursor-tracking poller ───────────────────────────────────────────────
- * Polls tj-cursor.js (written by taskjuggler-mode.el) and calls
- * _tjSetActiveTask to highlight the task currently at point in Emacs.
- * Uses a short interval (300 ms) so the highlight feels responsive.
- * Fails silently when the file does not exist (e.g. before the first save).
+/* ── Cursor tracking: SSE (tj3webd) with file:// fallback ────────────────
+ * When served by tj3webd, subscribe to GET /cursor as a Server-Sent Event
+ * stream.  The server watches tj-cursor.js and pushes {"cursorId","cursorTs"}
+ * whenever the editor pipe advances.  The browser only calls _tjSetActiveTask
+ * when _tjCursorTs increases, so a browser-click rewrite (which preserves the
+ * cursor timestamp) does not trigger a spurious highlight update.
  *
- * Uses a dynamic <script> tag instead of fetch() so it works under the
- * file:// protocol without triggering CORS errors in Firefox/Chrome.
- * The script sets window._tjCursorTaskId; we read that after it loads.
+ * When loaded as file://, EventSource('/cursor') fails immediately and the
+ * original 300 ms script-tag poller takes over unchanged.
+ *
+ * tj-cursor.js carries two pipes, each with a timestamp:
+ *   window._tjCursorTaskId = "foo.bar";   // editor→browser: cursor position
+ *   window._tjCursorTs     = 1712844002;  // editor→browser: Unix timestamp
+ *   window._tjClickTaskId  = "baz.qux";  // browser→editor: clicked task
+ *   window._tjClickTs      = 1712844000; // browser→editor: Unix timestamp
  */
 (function () {
   'use strict';
 
-  var CURSOR_POLL_MS = 300;
-  var lastTaskId = null;
-  var pending    = false;       /* true while a script tag is in flight */
-
-  function checkCursor() {
-    if (pending || document.hidden) { return; }
-    pending = true;
-
-    /* Clear before injecting so onerror (file absent) reads undefined, not a
-     * stale value left by the previous successful load. */
-    window._tjCursorTaskId = undefined;
-    var script = document.createElement('script');
-    script.src = 'js/tj-cursor.js?t=' + Date.now();
-
-    function done() {
-      pending = false;
-      var taskId = window._tjCursorTaskId || null;
-      if (taskId !== lastTaskId) {
-        lastTaskId = taskId;
+  /* ── SSE path (same-origin, tj3webd) ── */
+  var sseActive    = false;
+  var lastCursorTs = 0;   /* tracks _tjCursorTs; ignores click-triggered SSE fires */
+  try {
+    var es = new EventSource('/cursor');
+    es.addEventListener('cursor', function (e) {
+      sseActive = true;
+      var data = JSON.parse(e.data);
+      /* Only act when the CURSOR pipe advanced; a browser click preserves
+       * _tjCursorTs so this guard filters it out. */
+      if ((data.cursorTs || 0) > lastCursorTs) {
+        lastCursorTs = data.cursorTs;
         if (typeof window._tjSetActiveTask === 'function') {
-          window._tjSetActiveTask(taskId);
+          window._tjSetActiveTask(data.cursorId || null);
         }
       }
-      if (script.parentNode) { script.parentNode.removeChild(script); }
-    }
-
-    script.onload  = done;
-    script.onerror = done;   /* file not yet present — treat as null */
-    document.head.appendChild(script);
+    });
+    es.onerror = function () {
+      /* Connection failed immediately (file://, server not running) — fall back. */
+      if (!sseActive) { es.close(); startPolling(); }
+    };
+  } catch (err) {
+    startPolling();
   }
 
-  setInterval(checkCursor, CURSOR_POLL_MS);
+  /* ── Fallback: 300 ms script-tag poller for file:// mode ── */
+  function startPolling() {
+    var CURSOR_POLL_MS = 300;
+    var lastTs  = 0;
+    var pending = false;
+
+    function checkCursor() {
+      if (pending || document.hidden) { return; }
+      pending = true;
+      /* Clear both cursor fields before injecting so onerror reads undefined. */
+      window._tjCursorTaskId = undefined;
+      window._tjCursorTs     = undefined;
+      var script = document.createElement('script');
+      script.src = 'js/tj-cursor.js?t=' + Date.now();
+
+      function done() {
+        pending = false;
+        /* Mirror the SSE logic: act only when _tjCursorTs increases. */
+        var ts     = window._tjCursorTs || 0;
+        var taskId = window._tjCursorTaskId || null;
+        if (ts > lastTs) {
+          lastTs = ts;
+          if (typeof window._tjSetActiveTask === 'function') {
+            window._tjSetActiveTask(taskId);
+          }
+        }
+        if (script.parentNode) { script.parentNode.removeChild(script); }
+      }
+
+      script.onload  = done;
+      script.onerror = done;   /* file not yet present — treat as no change */
+      document.head.appendChild(script);
+    }
+
+    setInterval(checkCursor, CURSOR_POLL_MS);
+  }
 })();

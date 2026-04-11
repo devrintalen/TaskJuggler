@@ -18,6 +18,7 @@ require 'taskjuggler/AppConfig'
 require 'taskjuggler/daemon/Daemon'
 require 'taskjuggler/daemon/WelcomePage'
 require 'taskjuggler/daemon/ReportServlet'
+require 'taskjuggler/daemon/CursorServlet'
 
 class TaskJuggler
 
@@ -84,6 +85,14 @@ class TaskJuggler
       rescue
         fatal('broker_page_mount_failed',
               "Cannot mount WEBrick broker page: #{$!}")
+      end
+
+      begin
+        cursor_file = File.join(Dir.getwd, 'tj-cursor.js')
+        @server.mount('/cursor', CursorServlet, [ cursor_file ])
+      rescue
+        fatal('cursor_servlet_mount_failed',
+              "Cannot mount WEBrick cursor servlet: #{$!}")
       end
 
       # Serve some directories via the FileHandler servlet.
