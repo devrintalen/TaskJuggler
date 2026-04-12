@@ -53,9 +53,11 @@ class TaskJuggler
       @webServerPort = 8080
 
       Kernel.trap('TERM') do
-        debug('webserver_term_signal', 'TERM signal received. Exiting...')
-        # When the OS sends us a TERM signal, we try to exit gracefully.
-        stop
+        # Dispatch to a thread: Ruby forbids Mutex#synchronize in trap context.
+        Thread.new do
+          debug('webserver_term_signal', 'TERM signal received. Exiting...')
+          stop
+        end
       end
     end
 
@@ -126,8 +128,9 @@ EOT
       end
 
       # Install signal handler to exit gracefully on CTRL-C.
+      # Dispatch to a thread: Ruby forbids Mutex#synchronize in trap context.
       intHandler = Kernel.trap('INT') do
-        stop
+        Thread.new { stop }
       end
 
       begin
