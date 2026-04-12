@@ -105,6 +105,7 @@ class TaskJuggler
         'workinghours' => nil,
         'yearlyworkingdays' => 260.714
       }
+      @scheduledAt = nil
 
       # Before we can add any properties to this project, we need to define the
       # attributes that each of the property types will be using. In TaskJuggler
@@ -500,6 +501,12 @@ class TaskJuggler
       self
     end
 
+    # Returns the Time when the project was last scheduled, or nil if it
+    # hasn't been scheduled yet.
+    def scheduledAt
+      @scheduledAt
+    end
+
     # Query the value of a Project attribute. _name_ is the ID of the attribute.
     def [](name)
       if !@attributes.has_key?(name)
@@ -672,6 +679,7 @@ class TaskJuggler
       end
 
       @timeSheets.warnOnDelta if @warnTsDeltas
+      @scheduledAt = Time.now
       true
     end
 

@@ -18,6 +18,8 @@ require 'taskjuggler/AppConfig'
 require 'taskjuggler/daemon/Daemon'
 require 'taskjuggler/daemon/WelcomePage'
 require 'taskjuggler/daemon/ReportServlet'
+require 'taskjuggler/daemon/CursorServlet'
+require 'taskjuggler/daemon/ProjectStatusServlet'
 
 class TaskJuggler
 
@@ -51,9 +53,11 @@ class TaskJuggler
       @webServerPort = 8080
 
       Kernel.trap('TERM') do
-        debug('webserver_term_signal', 'TERM signal received. Exiting...')
-        # When the OS sends us a TERM signal, we try to exit gracefully.
-        stop
+        # Dispatch to a thread: Ruby forbids Mutex#synchronize in trap context.
+        Thread.new do
+          debug('webserver_term_signal', 'TERM signal received. Exiting...')
+          stop
+        end
       end
     end
 
@@ -86,6 +90,22 @@ class TaskJuggler
               "Cannot mount WEBrick broker page: #{$!}")
       end
 
+      begin
+        cursor_file = File.join(Dir.getwd, 'tj-cursor.js')
+        @server.mount('/cursor', CursorServlet, [ cursor_file ])
+      rescue
+        fatal('cursor_servlet_mount_failed',
+              "Cannot mount WEBrick cursor servlet: #{$!}")
+      end
+
+      begin
+        @server.mount('/project-status', ProjectStatusServlet,
+                      [ @authKey, @host, @port, @uri ])
+      rescue
+        fatal('project_status_mount_failed',
+              "Cannot mount WEBrick project-status servlet: #{$!}")
+      end
+
       # Serve some directories via the FileHandler servlet.
       %w( css icons scripts ).each do |dir|
         unless (fullDir = AppConfig.dataDirs("data/#{dir}")[0])
@@ -108,8 +128,9 @@ EOT
       end
 
       # Install signal handler to exit gracefully on CTRL-C.
+      # Dispatch to a thread: Ruby forbids Mutex#synchronize in trap context.
       intHandler = Kernel.trap('INT') do
-        stop
+        Thread.new { stop }
       end
 
       begin
@@ -122,6 +143,10 @@ EOT
     # Stop the web server.
     def stop
       if @server
+        # Close all SSE pipes before shutting down WEBrick so its connection
+        # threads see EOF and can be joined without blocking indefinitely.
+        CursorServlet.shutdown
+        ProjectStatusServlet.shutdown
         @server.shutdown
         @server = nil
       end

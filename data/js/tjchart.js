@@ -10,8 +10,11 @@
  * Load-stack rows (resource/nested-resource/nested-task) render proportional
  * busy/free/assigned bars.
  */
-(function () {
+function initTjChart(dataArg, restoreOpts) {
   'use strict';
+  restoreOpts = restoreOpts || {};
+  /* Remove handlers registered by a previous initTjChart call (soft reload). */
+  if (typeof window._tjCleanup === 'function') { window._tjCleanup(); window._tjCleanup = null; }
 
   /* ── Constants matching Ruby GanttTaskBar/Container/Milestone sizes ── */
   var BAR_HALF      = 6;   // GanttTaskBar @@size
@@ -82,7 +85,7 @@
 
 
   /* ───────────────────────── Bootstrap ───────────────────────────────── */
-  var data = window.tjGanttData;
+  var data = dataArg || window.tjGanttData;
   if (!data || !data.rows || !data.rows.length) { return; }
 
   var container = document.getElementById('tj-gantt-container');
@@ -313,9 +316,12 @@
     }
     updateRowHighlight._prev = hoveredRowIdx;
 
-    /* Apply new highlight to left-panel <tr> */
+    /* Apply new highlight to left-panel <tr>.
+     * Active row keeps its yellow even while hovered. */
     if (hoveredRowIdx >= 0) {
-      rowTrs[hoveredRowIdx].style.backgroundColor = rowHoverColor(rows[hoveredRowIdx]);
+      rowTrs[hoveredRowIdx].style.backgroundColor =
+        (hoveredRowIdx === activeTaskRowIdx) ? C.rowActive
+                                             : rowHoverColor(rows[hoveredRowIdx]);
     }
 
     /* Redraw gRowHighlight */
@@ -351,9 +357,7 @@
     if (activeTaskRowIdx >= 0) {
       var row = rows[activeTaskRowIdx];
       if (!row._hidden) {
-        if (activeTaskRowIdx !== hoveredRowIdx) {
-          rowTrs[activeTaskRowIdx].style.backgroundColor = C.rowActive;
-        }
+        rowTrs[activeTaskRowIdx].style.backgroundColor = C.rowActive;
         svgEl('rect', gActiveTaskHighlight, {
           x: 0, y: yOffsets[activeTaskRowIdx],
           width: getChartWidth(), height: rowVisualHeight(row) - 1,
@@ -515,6 +519,26 @@
 
   /* ── Collapse / expand ── */
   var collapsedIds = new Set();   // ids of currently-collapsed container rows
+
+  /* Restore collapsed ids from soft-reload pass-through or sessionStorage. */
+  (function () {
+    var ids = restoreOpts.collapsedIds || null;
+    if (!ids) {
+      var sc = sessionStorage.getItem('tjchart-collapsed');
+      if (sc) {
+        sessionStorage.removeItem('tjchart-collapsed');
+        try { ids = JSON.parse(sc); } catch (e) {}
+      }
+    }
+    if (ids && ids.length) {
+      ids.forEach(function (id) { collapsedIds.add(id); });
+      /* Pre-compute hidden state and yOffsets so the first SVG render already
+       * reflects the collapsed layout — avoids a visible flash of all rows. */
+      computeHidden();
+      yOffsets = buildYOffsets();
+      chartH   = yOffsets[yOffsets.length - 1];
+    }
+  })();
 
   /* Recompute row._hidden for every row based on collapsedIds.
    * Assumes rows are in tree order (parents appear before their children). */
@@ -829,6 +853,31 @@
         });
       });
     }(i));
+
+    /* Row click: update active highlight + POST task ID to /cursor so the
+     * editor can jump to the task definition.
+     * Only wired for task rows; resource/nested rows are skipped.
+     * The container-toggle hitTarget calls e.stopPropagation() so its click
+     * never reaches the <tr> — no extra guard needed here. */
+    (function (rowRef) {
+      if ((rowRef.rowType || 'task') !== 'task') { return; }
+      scenarioTrs.forEach(function (t) {
+        t.addEventListener('click', function () {
+          /* 1. Update active highlight immediately (same path as SSE/poller). */
+          if (typeof window._tjSetActiveTask === 'function') {
+            window._tjSetActiveTask(rowRef.id);
+          }
+
+          /* 2. Notify the server so it writes the click pipe of tj-cursor.js.
+           *    Fails silently when loaded as file:// (no server present). */
+          fetch('/cursor', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ id: rowRef.id })
+          }).catch(function () {});
+        });
+      });
+    }(row));
 
     scenarioTrs.forEach(function (t) { tbody.appendChild(t); });
   });
@@ -1893,15 +1942,22 @@
     d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(scaleFactor));
   }
 
-  /* Restore the visible date range saved immediately before a live-reload.
+  /* Restore the visible date range from soft-reload pass-through or sessionStorage.
    * Uses date-based bounds so the view survives project domain changes.
    * Runs after initialScale so it takes priority when present. */
   (function () {
-    var saved = sessionStorage.getItem('tjchart-view');
-    if (!saved) { return; }
-    sessionStorage.removeItem('tjchart-view');
+    var v = null;
+    if (restoreOpts.viewL && restoreOpts.viewR) {
+      v = { l: restoreOpts.viewL, r: restoreOpts.viewR };
+    } else {
+      var saved = sessionStorage.getItem('tjchart-view');
+      if (saved) {
+        sessionStorage.removeItem('tjchart-view');
+        try { v = JSON.parse(saved); } catch (e) {}
+      }
+    }
+    if (!v) { return; }
     try {
-      var v   = JSON.parse(saved);
       var lPx = baseXScale(new Date(v.l));
       var rPx = baseXScale(new Date(v.r));
       if (rPx - lPx > 1) {
@@ -1909,7 +1965,7 @@
         d3.select(svg).call(zoom.transform,
           d3.zoomIdentity.translate(-lPx * k, 0).scale(k));
       }
-    } catch (e) { /* malformed saved state — ignore */ }
+    } catch (e) {}
   })();
 
   /* Called by the cursor-tracking poller (see bottom of file) when the active
@@ -1934,43 +1990,152 @@
       l: xt.invert(0).getTime(),
       r: xt.invert(getChartWidth()).getTime()
     }));
+    sessionStorage.setItem('tjchart-collapsed', JSON.stringify(Array.from(collapsedIds)));
   };
 
   render(currentXScale);
+  /* Sync left-panel <tr> visibility with any restored collapsed state. */
+  if (collapsedIds.size > 0) { applyCollapse(); }
+  /* Restore active task highlight from soft-reload pass-through. */
+  if (restoreOpts.activeTaskId) { window._tjSetActiveTask(restoreOpts.activeTaskId); }
 
-  window.addEventListener('resize', function () {
+  /* Track handlers so they can be removed when initTjChart is called again. */
+  var _resizeHandler = function () {
     _stripesW = -1;   // force stripe redraw on new width
     baseXScale.range([0, getChartWidth()]);
     var t = d3.zoomTransform(svg);
     currentXScale = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
     scheduleRender();
-  });
+  };
+  window.addEventListener('resize', _resizeHandler);
 
   /* ── Live now-line update ── */
   /* Advance the live now-line every 60 seconds to track the system clock. */
-  setInterval(function () {
+  var _nowLineInterval = setInterval(function () {
     renderNowLive(currentXScale);
   }, 60000);
 
-})();
+  /* Removes global handlers from this chart instance on soft reload. */
+  window._tjCleanup = function () {
+    window.removeEventListener('resize', _resizeHandler);
+    clearInterval(_nowLineInterval);
+  };
+
+  /* ── Soft reload ── */
+  /* Fetches the updated page, extracts new tjGanttData, and re-renders in-place,
+   * preserving pan/zoom and collapsed state.  Falls back to location.reload() if
+   * the fetch or JSON parse fails. */
+  window._tjSoftReload = function () {
+    var curCollapsed = Array.from(collapsedIds);
+    var curActiveId  = (activeTaskRowIdx >= 0) ? rows[activeTaskRowIdx].id : null;
+    var t  = d3.zoomTransform(svg);
+    var xt = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
+    var viewL = xt.invert(0).getTime();
+    var viewR = xt.invert(getChartWidth()).getTime();
+
+    fetch(location.href, { cache: 'no-cache' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var marker    = 'window.tjGanttData = ';
+        var idx       = html.indexOf(marker);
+        if (idx < 0) { throw new Error('no tjGanttData'); }
+        var jsonStart = idx + marker.length;
+        var scriptEnd = html.indexOf('<' + '/script>', jsonStart);
+        if (scriptEnd < 0) { throw new Error('no script end'); }
+        var jsonStr = html.slice(jsonStart, scriptEnd).trim();
+        if (jsonStr[jsonStr.length - 1] === ';') { jsonStr = jsonStr.slice(0, -1); }
+        var newData = JSON.parse(jsonStr);
+
+        /* Extract the new scheduledAt stamp and update the meta tag so that
+         * _tjRestartWatcher can open a fresh SSE stream with the correct since. */
+        var stampM = html.match(/<meta[^>]+name=["']tj-generated["'][^>]+content=["'](\d+)["']/i)
+                  || html.match(/<meta[^>]+content=["'](\d+)["'][^>]+name=["']tj-generated["']/i);
+        var newStamp = stampM ? stampM[1] : null;
+        var metaEl = document.querySelector('meta[name="tj-generated"]');
+        if (metaEl && newStamp) { metaEl.setAttribute('content', newStamp); }
+
+        window.tjGanttData = newData;
+        initTjChart(newData, { collapsedIds: curCollapsed, viewL: viewL, viewR: viewR,
+                               activeTaskId: curActiveId });
+
+        if (typeof window._tjRestartWatcher === 'function' && newStamp) {
+          window._tjRestartWatcher(newStamp);
+        }
+      })
+      .catch(function () {
+        /* Network or parse error — fall back to a hard reload with saved state. */
+        sessionStorage.setItem('tjchart-view',
+          JSON.stringify({ l: viewL, r: viewR }));
+        sessionStorage.setItem('tjchart-collapsed',
+          JSON.stringify(curCollapsed));
+        location.reload();
+      });
+  };
+}
+initTjChart();
 
 /* ── Live-reload watcher ──────────────────────────────────────────────────
- * Polls for changes to the generated HTML file and reloads when a new
- * version is detected.  Works for http[s]:// (all browsers) and file://
- * (Firefox; Chrome blocks same-origin file:// fetch).  Falls back to
- * reloading on tab focus/visibility for protocols where fetch is blocked.
+ * http[s]:// (tj3webd) — Subscribes to GET /project-status via SSE.  The
+ *   server pushes a single "reload" event when the project is rescheduled.
+ *   Zero polling overhead; no reload loops.
+ *
+ * file:// — Polls the generated HTML file for a changed tj-generated stamp.
+ *   Works in Firefox; Chrome blocks same-origin file:// fetch, so falls back
+ *   to reloading on tab focus/visibility change.
  */
 (function () {
   'use strict';
 
-  var POLL_MS = 2000;
-
-  /* Read the tj-generated timestamp embedded by TaskJuggler at report-gen time. */
   var metaEl = document.querySelector('meta[name="tj-generated"]');
   if (!metaEl) { return; }   /* not a TaskJuggler report — do nothing */
 
   var initialStamp = metaEl.getAttribute('content');
-  console.log('tjchart: watching for changes (tj-generated=' + initialStamp + ')');
+
+  /* ── SSE path: http[s]:// served by tj3webd ── */
+  if (location.protocol !== 'file:') {
+    /* URLSearchParams only splits on '&'; WEBrick uses ';' as separator too. */
+    var projectId = null;
+    location.search.slice(1).split(/[&;]/).forEach(function (pair) {
+      var eq = pair.indexOf('=');
+      if (eq > 0 && decodeURIComponent(pair.slice(0, eq)) === 'project') {
+        projectId = decodeURIComponent(pair.slice(eq + 1));
+      }
+    });
+    if (!projectId) { return; }
+
+    var es = null;
+    var reloading = false;   /* true while a soft-reload fetch is in flight */
+    function startWatcher(stamp) {
+      if (es) { es.close(); es = null; }
+      reloading = false;   /* new stamp — ready to fire again */
+      var url = '/project-status?project=' + encodeURIComponent(projectId) +
+                '&since=' + stamp;
+      es = new EventSource(url);
+      es.addEventListener('reload', function () {
+        /* Guard against duplicate fires: the browser's EventSource reconnect
+         * timer may re-open the stream (with the old since stamp) before the
+         * async fetch completes and _tjRestartWatcher advances the stamp. */
+        if (reloading) { return; }
+        reloading = true;
+        if (es) { es.close(); es = null; }
+        if (typeof window._tjSoftReload === 'function') {
+          window._tjSoftReload();
+        } else {
+          if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+          location.reload();
+        }
+      });
+    }
+    startWatcher(initialStamp);
+
+    /* Called by _tjSoftReload after re-rendering to advance the since stamp
+     * and prevent an immediate re-fire of the reload event. */
+    window._tjRestartWatcher = function (newStamp) { startWatcher(newStamp); };
+    return;
+  }
+
+  /* ── Polling path: file:// ── */
+  var POLL_MS = 2000;
 
   /* Extract the tj-generated content value from a raw HTML string. */
   function extractStamp(html) {
@@ -1986,8 +2151,12 @@
       .then(function (text) {
         var stamp = extractStamp(text);
         if (stamp && stamp !== initialStamp) {
-          if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
-          location.reload();
+          if (typeof window._tjSoftReload === 'function') {
+            window._tjSoftReload();
+          } else {
+            if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+            location.reload();
+          }
         }
       })
       .catch(function () {
@@ -2007,49 +2176,89 @@
   var pollInterval = setInterval(checkForUpdate, POLL_MS);
 })();
 
-/* ── Cursor-tracking poller ───────────────────────────────────────────────
- * Polls tj-cursor.js (written by taskjuggler-mode.el) and calls
- * _tjSetActiveTask to highlight the task currently at point in Emacs.
- * Uses a short interval (300 ms) so the highlight feels responsive.
- * Fails silently when the file does not exist (e.g. before the first save).
+/* ── Cursor tracking: SSE (tj3webd) with file:// fallback ────────────────
+ * When served by tj3webd, subscribe to GET /cursor as a Server-Sent Event
+ * stream.  The server watches tj-cursor.js and pushes {"cursorId","cursorTs"}
+ * whenever the editor pipe advances.  The browser only calls _tjSetActiveTask
+ * when _tjCursorTs increases, so a browser-click rewrite (which preserves the
+ * cursor timestamp) does not trigger a spurious highlight update.
  *
- * Uses a dynamic <script> tag instead of fetch() so it works under the
- * file:// protocol without triggering CORS errors in Firefox/Chrome.
- * The script sets window._tjCursorTaskId; we read that after it loads.
+ * When loaded as file://, EventSource('/cursor') fails immediately and the
+ * original 300 ms script-tag poller takes over unchanged.
+ *
+ * tj-cursor.js carries two pipes, each with a timestamp:
+ *   window._tjCursorTaskId = "foo.bar";   // editor→browser: cursor position
+ *   window._tjCursorTs     = 1712844002;  // editor→browser: Unix timestamp
+ *   window._tjClickTaskId  = "baz.qux";  // browser→editor: clicked task
+ *   window._tjClickTs      = 1712844000; // browser→editor: Unix timestamp
  */
 (function () {
   'use strict';
 
-  var CURSOR_POLL_MS = 300;
-  var lastTaskId = null;
-  var pending    = false;       /* true while a script tag is in flight */
-
-  function checkCursor() {
-    if (pending || document.hidden) { return; }
-    pending = true;
-
-    /* Clear before injecting so onerror (file absent) reads undefined, not a
-     * stale value left by the previous successful load. */
-    window._tjCursorTaskId = undefined;
-    var script = document.createElement('script');
-    script.src = 'js/tj-cursor.js?t=' + Date.now();
-
-    function done() {
-      pending = false;
-      var taskId = window._tjCursorTaskId || null;
-      if (taskId !== lastTaskId) {
-        lastTaskId = taskId;
+  /* ── SSE path (same-origin, tj3webd) ── */
+  var sseActive    = false;
+  var lastCursorTs = 0;   /* tracks _tjCursorTs; ignores click-triggered SSE fires */
+  try {
+    var es = new EventSource('/cursor');
+    es.addEventListener('cursor', function (e) {
+      sseActive = true;
+      var data = JSON.parse(e.data);
+      /* Only act when the CURSOR pipe advanced; a browser click preserves
+       * _tjCursorTs so this guard filters it out. */
+      if ((data.cursorTs || 0) > lastCursorTs) {
+        lastCursorTs = data.cursorTs;
         if (typeof window._tjSetActiveTask === 'function') {
-          window._tjSetActiveTask(taskId);
+          window._tjSetActiveTask(data.cursorId || null);
         }
       }
-      if (script.parentNode) { script.parentNode.removeChild(script); }
-    }
-
-    script.onload  = done;
-    script.onerror = done;   /* file not yet present — treat as null */
-    document.head.appendChild(script);
+    });
+    es.onerror = function () {
+      /* On file://, EventSource is blocked by the browser — fall back to polling.
+       * On http://, a transient failure (server restart, etc.) should recover on
+       * its own via EventSource auto-reconnect, so leave it open. */
+      if (!sseActive && location.protocol === 'file:') {
+        es.close();
+        startPolling();
+      }
+    };
+  } catch (err) {
+    startPolling();
   }
 
-  setInterval(checkCursor, CURSOR_POLL_MS);
+  /* ── Fallback: 300 ms script-tag poller for file:// mode ── */
+  function startPolling() {
+    var CURSOR_POLL_MS = 300;
+    var lastTs  = 0;
+    var pending = false;
+
+    function checkCursor() {
+      if (pending || document.hidden) { return; }
+      pending = true;
+      /* Clear both cursor fields before injecting so onerror reads undefined. */
+      window._tjCursorTaskId = undefined;
+      window._tjCursorTs     = undefined;
+      var script = document.createElement('script');
+      script.src = 'js/tj-cursor.js?t=' + Date.now();
+
+      function done() {
+        pending = false;
+        /* Mirror the SSE logic: act only when _tjCursorTs increases. */
+        var ts     = window._tjCursorTs || 0;
+        var taskId = window._tjCursorTaskId || null;
+        if (ts > lastTs) {
+          lastTs = ts;
+          if (typeof window._tjSetActiveTask === 'function') {
+            window._tjSetActiveTask(taskId);
+          }
+        }
+        if (script.parentNode) { script.parentNode.removeChild(script); }
+      }
+
+      script.onload  = done;
+      script.onerror = done;   /* file not yet present — treat as no change */
+      document.head.appendChild(script);
+    }
+
+    setInterval(checkCursor, CURSOR_POLL_MS);
+  }
 })();

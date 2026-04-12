@@ -40,7 +40,7 @@ class TaskJuggler
 
     include MessageHandler
 
-    attr_accessor :authKey, :port, :uriFile, :projectFiles, :logStdIO
+    attr_accessor :authKey, :port, :uriFile, :projectFiles, :logStdIO, :autoUpdate
 
     def initialize
       super
@@ -70,6 +70,10 @@ class TaskJuggler
 
       # This flag will be set to true to terminate the daemon.
       @terminate = false
+
+      # When true, automatically call update() after a debounce period
+      # whenever any project's modified flag is set.
+      @autoUpdate = false
     end
 
     def start
@@ -118,6 +122,9 @@ EOT
       @projectFiles.each do |project|
         @projectsToLoad.push(project)
       end
+
+      # Start the auto-updater thread if --auto-update was requested.
+      startAutoUpdater if @autoUpdate
 
       # Start a Thread that waits for the @terminate flag to be set and does
       # some other work asynchronously.
@@ -451,6 +458,40 @@ EOT
 
         fatal('pb_housekeeping_error',
               "ProjectBroker housekeeping error: #{$!}")
+      end
+    end
+
+    # When --auto-update is active, poll every 100 ms for projects whose
+    # modified flag has been set and call update() once the flag has been
+    # stable for at least 500 ms.  The debounce window lets a developer
+    # finish saving a batch of files before a reload is triggered.
+    def startAutoUpdater
+      Thread.new do
+        begin
+          modified_since = {}   # project authKey => Time.now when first seen
+          loop do
+            sleep 0.1
+            break if @terminate
+
+            now = Time.now
+            @projects.synchronize do
+              @projects.each do |p|
+                if p.modified && !p.reloading && p.state == :ready
+                  modified_since[p.authKey] ||= now
+                else
+                  modified_since.delete(p.authKey)
+                end
+              end
+            end
+
+            if modified_since.any? { |_, t| now - t >= 0.5 }
+              update
+              modified_since.clear
+            end
+          end
+        rescue => e
+          warning('pb_auto_updater_error', "Auto-updater error: #{e}")
+        end
       end
     end
 
