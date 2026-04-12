@@ -10,8 +10,11 @@
  * Load-stack rows (resource/nested-resource/nested-task) render proportional
  * busy/free/assigned bars.
  */
-(function () {
+function initTjChart(dataArg, restoreOpts) {
   'use strict';
+  restoreOpts = restoreOpts || {};
+  /* Remove handlers registered by a previous initTjChart call (soft reload). */
+  if (typeof window._tjCleanup === 'function') { window._tjCleanup(); window._tjCleanup = null; }
 
   /* ── Constants matching Ruby GanttTaskBar/Container/Milestone sizes ── */
   var BAR_HALF      = 6;   // GanttTaskBar @@size
@@ -82,7 +85,7 @@
 
 
   /* ───────────────────────── Bootstrap ───────────────────────────────── */
-  var data = window.tjGanttData;
+  var data = dataArg || window.tjGanttData;
   if (!data || !data.rows || !data.rows.length) { return; }
 
   var container = document.getElementById('tj-gantt-container');
@@ -516,6 +519,26 @@
 
   /* ── Collapse / expand ── */
   var collapsedIds = new Set();   // ids of currently-collapsed container rows
+
+  /* Restore collapsed ids from soft-reload pass-through or sessionStorage. */
+  (function () {
+    var ids = restoreOpts.collapsedIds || null;
+    if (!ids) {
+      var sc = sessionStorage.getItem('tjchart-collapsed');
+      if (sc) {
+        sessionStorage.removeItem('tjchart-collapsed');
+        try { ids = JSON.parse(sc); } catch (e) {}
+      }
+    }
+    if (ids && ids.length) {
+      ids.forEach(function (id) { collapsedIds.add(id); });
+      /* Pre-compute hidden state and yOffsets so the first SVG render already
+       * reflects the collapsed layout — avoids a visible flash of all rows. */
+      computeHidden();
+      yOffsets = buildYOffsets();
+      chartH   = yOffsets[yOffsets.length - 1];
+    }
+  })();
 
   /* Recompute row._hidden for every row based on collapsedIds.
    * Assumes rows are in tree order (parents appear before their children). */
@@ -1919,15 +1942,22 @@
     d3.select(svg).call(zoom.transform, d3.zoomIdentity.scale(scaleFactor));
   }
 
-  /* Restore the visible date range saved immediately before a live-reload.
+  /* Restore the visible date range from soft-reload pass-through or sessionStorage.
    * Uses date-based bounds so the view survives project domain changes.
    * Runs after initialScale so it takes priority when present. */
   (function () {
-    var saved = sessionStorage.getItem('tjchart-view');
-    if (!saved) { return; }
-    sessionStorage.removeItem('tjchart-view');
+    var v = null;
+    if (restoreOpts.viewL && restoreOpts.viewR) {
+      v = { l: restoreOpts.viewL, r: restoreOpts.viewR };
+    } else {
+      var saved = sessionStorage.getItem('tjchart-view');
+      if (saved) {
+        sessionStorage.removeItem('tjchart-view');
+        try { v = JSON.parse(saved); } catch (e) {}
+      }
+    }
+    if (!v) { return; }
     try {
-      var v   = JSON.parse(saved);
       var lPx = baseXScale(new Date(v.l));
       var rPx = baseXScale(new Date(v.r));
       if (rPx - lPx > 1) {
@@ -1935,7 +1965,7 @@
         d3.select(svg).call(zoom.transform,
           d3.zoomIdentity.translate(-lPx * k, 0).scale(k));
       }
-    } catch (e) { /* malformed saved state — ignore */ }
+    } catch (e) {}
   })();
 
   /* Called by the cursor-tracking poller (see bottom of file) when the active
@@ -1960,25 +1990,85 @@
       l: xt.invert(0).getTime(),
       r: xt.invert(getChartWidth()).getTime()
     }));
+    sessionStorage.setItem('tjchart-collapsed', JSON.stringify(Array.from(collapsedIds)));
   };
 
   render(currentXScale);
+  /* Sync left-panel <tr> visibility with any restored collapsed state. */
+  if (collapsedIds.size > 0) { applyCollapse(); }
 
-  window.addEventListener('resize', function () {
+  /* Track handlers so they can be removed when initTjChart is called again. */
+  var _resizeHandler = function () {
     _stripesW = -1;   // force stripe redraw on new width
     baseXScale.range([0, getChartWidth()]);
     var t = d3.zoomTransform(svg);
     currentXScale = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
     scheduleRender();
-  });
+  };
+  window.addEventListener('resize', _resizeHandler);
 
   /* ── Live now-line update ── */
   /* Advance the live now-line every 60 seconds to track the system clock. */
-  setInterval(function () {
+  var _nowLineInterval = setInterval(function () {
     renderNowLive(currentXScale);
   }, 60000);
 
-})();
+  /* Removes global handlers from this chart instance on soft reload. */
+  window._tjCleanup = function () {
+    window.removeEventListener('resize', _resizeHandler);
+    clearInterval(_nowLineInterval);
+  };
+
+  /* ── Soft reload ── */
+  /* Fetches the updated page, extracts new tjGanttData, and re-renders in-place,
+   * preserving pan/zoom and collapsed state.  Falls back to location.reload() if
+   * the fetch or JSON parse fails. */
+  window._tjSoftReload = function () {
+    var curCollapsed = Array.from(collapsedIds);
+    var t  = d3.zoomTransform(svg);
+    var xt = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
+    var viewL = xt.invert(0).getTime();
+    var viewR = xt.invert(getChartWidth()).getTime();
+
+    fetch(location.href, { cache: 'no-cache' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var marker    = 'window.tjGanttData = ';
+        var idx       = html.indexOf(marker);
+        if (idx < 0) { throw new Error('no tjGanttData'); }
+        var jsonStart = idx + marker.length;
+        var scriptEnd = html.indexOf('<' + '/script>', jsonStart);
+        if (scriptEnd < 0) { throw new Error('no script end'); }
+        var jsonStr = html.slice(jsonStart, scriptEnd).trim();
+        if (jsonStr[jsonStr.length - 1] === ';') { jsonStr = jsonStr.slice(0, -1); }
+        var newData = JSON.parse(jsonStr);
+
+        /* Extract the new scheduledAt stamp and update the meta tag so that
+         * _tjRestartWatcher can open a fresh SSE stream with the correct since. */
+        var stampM = html.match(/<meta[^>]+name=["']tj-generated["'][^>]+content=["'](\d+)["']/i)
+                  || html.match(/<meta[^>]+content=["'](\d+)["'][^>]+name=["']tj-generated["']/i);
+        var newStamp = stampM ? stampM[1] : null;
+        var metaEl = document.querySelector('meta[name="tj-generated"]');
+        if (metaEl && newStamp) { metaEl.setAttribute('content', newStamp); }
+
+        window.tjGanttData = newData;
+        initTjChart(newData, { collapsedIds: curCollapsed, viewL: viewL, viewR: viewR });
+
+        if (typeof window._tjRestartWatcher === 'function' && newStamp) {
+          window._tjRestartWatcher(newStamp);
+        }
+      })
+      .catch(function () {
+        /* Network or parse error — fall back to a hard reload with saved state. */
+        sessionStorage.setItem('tjchart-view',
+          JSON.stringify({ l: viewL, r: viewR }));
+        sessionStorage.setItem('tjchart-collapsed',
+          JSON.stringify(curCollapsed));
+        location.reload();
+      });
+  };
+}
+initTjChart();
 
 /* ── Live-reload watcher ──────────────────────────────────────────────────
  * http[s]:// (tj3webd) — Subscribes to GET /project-status via SSE.  The
@@ -2008,13 +2098,27 @@
       }
     });
     if (!projectId) { return; }
-    var url = '/project-status?project=' + encodeURIComponent(projectId) +
-              '&since=' + initialStamp;
-    var es = new EventSource(url);
-    es.addEventListener('reload', function () {
-      if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
-      location.reload();
-    });
+
+    var es = null;
+    function startWatcher(stamp) {
+      if (es) { es.close(); }
+      var url = '/project-status?project=' + encodeURIComponent(projectId) +
+                '&since=' + stamp;
+      es = new EventSource(url);
+      es.addEventListener('reload', function () {
+        if (typeof window._tjSoftReload === 'function') {
+          window._tjSoftReload();
+        } else {
+          if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+          location.reload();
+        }
+      });
+    }
+    startWatcher(initialStamp);
+
+    /* Called by _tjSoftReload after re-rendering to advance the since stamp
+     * and prevent an immediate re-fire of the reload event. */
+    window._tjRestartWatcher = function (newStamp) { startWatcher(newStamp); };
     return;
   }
 
@@ -2035,8 +2139,12 @@
       .then(function (text) {
         var stamp = extractStamp(text);
         if (stamp && stamp !== initialStamp) {
-          if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
-          location.reload();
+          if (typeof window._tjSoftReload === 'function') {
+            window._tjSoftReload();
+          } else {
+            if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+            location.reload();
+          }
         }
       })
       .catch(function () {

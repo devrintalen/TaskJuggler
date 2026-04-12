@@ -28,7 +28,7 @@ class TaskJuggler
   # reloading, resetting the baseline to the new stamp.
   class ProjectStatusServlet < WEBrick::HTTPServlet::AbstractServlet
 
-    POLL_INTERVAL = 5  # seconds between broker polls
+    POLL_INTERVAL = 1  # seconds between broker polls
 
     def initialize(config, options)
       super
