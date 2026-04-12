@@ -64,7 +64,7 @@ You can use the following links to learn more about TaskJuggler:
 
 ----
 #{AppConfig.softwareName} v#{AppConfig.version}
-- Copyright (c) #{AppConfig.copyright.join(', ')}
+- Copyright (c) #{AppConfig.copyright}
 by #{AppConfig.authors.join(', ')}
 EOT
 
