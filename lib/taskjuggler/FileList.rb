@@ -45,6 +45,11 @@ class TaskJuggler
       @files[fileName] = FileRecord.new(fileName)
     end
 
+    # Return all file names in the list.
+    def files
+      @files.keys
+    end
+
     # Return the name of the master file or nil of the master file was stdin.
     def masterFile
       @files.each_key do |file|

@@ -36,6 +36,7 @@ class TaskJuggler
       @daemonize = true
       @uriFile = File.join(Dir.getwd, '.tj3d.uri')
       @port = nil
+      @autoUpdate = false
       @webServer = false
       @webServerPort = 8080
       @webdPidFile = File.join(Dir.getwd, ".tj3webd-#{$$}.pid")
@@ -69,6 +70,11 @@ EOT
                         'of the server.')) do |arg|
           @uriFile = arg
         end
+        @opts.on('--auto-update',
+                 format('Automatically reload projects when source files ' +
+                        'change (500 ms debounce).')) do
+          @autoUpdate = true
+        end
         @opts.on('-w', '--webserver',
                  format('Start a web server that serves the reports of ' +
                         'the loaded projects.')) do
@@ -92,6 +98,7 @@ EOT
 
       # Set some config variables if corresponding data was provided via the
       # command line.
+      broker.autoUpdate = @autoUpdate if @autoUpdate
       broker.port = @port if @port
       broker.uriFile = @uriFile
       broker.projectFiles = sortInputFiles(files) unless files.empty?

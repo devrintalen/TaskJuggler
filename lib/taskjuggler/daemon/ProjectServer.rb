@@ -69,6 +69,9 @@ class TaskJuggler
       @reportServers.extend(MonitorMixin)
 
       @lastPing = TjTime.new
+      # Set to true once startFileWatcher has been called so we don't
+      # start duplicate watcher threads on subsequent housekeeping ticks.
+      @fileWatcherStarted = false
 
       # We've started a DRb server before. This will continue to live somewhat
       # in the child. All attempts to create a DRb connection from the child
@@ -287,6 +290,91 @@ class TaskJuggler
       end
     end
 
+    # Spawn a thread that watches the project's input files for changes and
+    # calls updateState(:ready, id, true) when one is detected.
+    #
+    # Priority (mirrors CursorServlet):
+    #   1. inotifywait (Linux, inotify-tools)  -- kernel push, zero CPU
+    #   2. fswatch     (macOS/Linux, fswatch)   -- kernel push, zero CPU
+    #   3. mtime poll  (60 s)                   -- universal fallback
+    def startFileWatcher
+      files = @tj.project.inputFiles.files
+      return if files.empty?
+
+      Thread.new do
+        begin
+          if tool_available?('inotifywait')
+            watch_with_inotifywait(files)
+          elsif tool_available?('fswatch')
+            watch_with_fswatch(files)
+          else
+            watch_with_mtime(files)
+          end
+        rescue => e
+          warning('ps_file_watcher_error', "File watcher error: #{e}")
+        end
+      end
+    end
+
+    def watch_with_inotifywait(files)
+      expanded = files.map { |f| File.expand_path(f) }
+      dirs     = expanded.map { |f| File.dirname(f) }.uniq
+      file_set = expanded.to_set
+
+      io = IO.popen(['inotifywait', '-m', '-q',
+                     '-e', 'close_write,moved_to',
+                     '--format', '%w%f', *dirs])
+      begin
+        io.each_line do |line|
+          if file_set.include?(line.chomp)
+            debug('', "Project #{@tj.projectId} has been modified")
+            updateState(:ready, @tj.projectId, true)
+            break
+          end
+          break if @terminate || @stateLock.synchronize { @modified }
+        end
+      ensure
+        Process.kill('TERM', io.pid) rescue nil
+        io.close rescue nil
+      end
+    end
+
+    def watch_with_fswatch(files)
+      expanded = files.map { |f| File.expand_path(f) }
+
+      io = IO.popen(['fswatch', *expanded])
+      begin
+        io.each_line do
+          debug('', "Project #{@tj.projectId} has been modified")
+          updateState(:ready, @tj.projectId, true)
+          break
+        end
+      ensure
+        Process.kill('TERM', io.pid) rescue nil
+        io.close rescue nil
+      end
+    end
+
+    def watch_with_mtime(files)
+      mtimes = files.map { |f| [f, (File.mtime(f) rescue nil)] }.to_h
+      loop do
+        return if @terminate || @stateLock.synchronize { @modified }
+        mtimes.each do |f, mtime|
+          current = File.mtime(f) rescue nil
+          if current && current != mtime
+            debug('', "Project #{@tj.projectId} has been modified")
+            updateState(:ready, @tj.projectId, true)
+            return
+          end
+        end
+        sleep 60
+      end
+    end
+
+    def tool_available?(name)
+      system("which #{name} > /dev/null 2>&1")
+    end
+
     def startHousekeeping
       Thread.new do
         begin
@@ -301,17 +389,13 @@ class TaskJuggler
               @projectData = nil
             end
 
-            # Check every 60 seconds if the input files have been modified.
-            # Don't check if we already know it has been modified.
-            if @stateLock.synchronize { @state == :ready && !@modified &&
-                                        @modifiedCheck + 60 < TjTime.new }
-              # Reset the timer
-              @stateLock.synchronize { @modifiedCheck = TjTime.new }
-
-              if @tj.project.inputFiles.modified?
-                debug('', "Project #{@tj.projectId} has been modified")
-                updateState(:ready, @tj.projectId, true)
-              end
+            # Start the file watcher once the project is ready.  It runs
+            # in its own thread and calls updateState when a change is
+            # detected, replacing the old 60-second mtime polling loop.
+            if @stateLock.synchronize { @state == :ready && !@modified } &&
+               !@fileWatcherStarted
+              @fileWatcherStarted = true
+              startFileWatcher
             end
 
             # Check for pending requests for new ReportServers.
