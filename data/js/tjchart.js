@@ -313,9 +313,12 @@
     }
     updateRowHighlight._prev = hoveredRowIdx;
 
-    /* Apply new highlight to left-panel <tr> */
+    /* Apply new highlight to left-panel <tr>.
+     * Active row keeps its yellow even while hovered. */
     if (hoveredRowIdx >= 0) {
-      rowTrs[hoveredRowIdx].style.backgroundColor = rowHoverColor(rows[hoveredRowIdx]);
+      rowTrs[hoveredRowIdx].style.backgroundColor =
+        (hoveredRowIdx === activeTaskRowIdx) ? C.rowActive
+                                             : rowHoverColor(rows[hoveredRowIdx]);
     }
 
     /* Redraw gRowHighlight */
@@ -351,9 +354,7 @@
     if (activeTaskRowIdx >= 0) {
       var row = rows[activeTaskRowIdx];
       if (!row._hidden) {
-        if (activeTaskRowIdx !== hoveredRowIdx) {
-          rowTrs[activeTaskRowIdx].style.backgroundColor = C.rowActive;
-        }
+        rowTrs[activeTaskRowIdx].style.backgroundColor = C.rowActive;
         svgEl('rect', gActiveTaskHighlight, {
           x: 0, y: yOffsets[activeTaskRowIdx],
           width: getChartWidth(), height: rowVisualHeight(row) - 1,
