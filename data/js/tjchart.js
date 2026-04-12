@@ -2110,6 +2110,9 @@ initTjChart();
                 '&since=' + stamp;
       es = new EventSource(url);
       es.addEventListener('reload', function () {
+        /* Close immediately so EventSource does not auto-reconnect with the
+         * old since stamp while the async soft-reload fetch is in flight. */
+        if (es) { es.close(); es = null; }
         if (typeof window._tjSoftReload === 'function') {
           window._tjSoftReload();
         } else {
