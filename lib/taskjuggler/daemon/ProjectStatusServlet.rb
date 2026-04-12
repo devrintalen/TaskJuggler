@@ -30,16 +30,27 @@ class TaskJuggler
 
     POLL_INTERVAL = 1  # seconds between broker polls
 
+    # Watch entries: [ { project_id:, since:, wr: }, ... ]
+    @@watches       = []
+    @@watches_mutex = Mutex.new
+
+    # Single shared poller thread (started on first connection).
+    @@poller_thread = nil
+
+    # DRb connection config — same for all instances.
+    @@auth_key = nil
+    @@drb_host = nil
+    @@drb_port = nil
+
     def initialize(config, options)
       super
-      @authKey = options[0]
-      @host    = options[1]
-      @port    = options[2]
-      @uri     = options[3]
+      @@auth_key = options[0]
+      @@drb_host = options[1]
+      @@drb_port = options[2]
     end
 
     def self.get_instance(config, options)
-      self.new(config, options)
+      new(config, options)
     end
 
     def do_GET(req, res)
@@ -53,38 +64,66 @@ class TaskJuggler
       rd, wr = IO.pipe
       res.body = rd
 
+      @@watches_mutex.synchronize do
+        @@watches << { project_id: project_id, since: since, wr: wr }
+        if @@poller_thread.nil? || !@@poller_thread.alive?
+          @@poller_thread = self.class.start_poller
+        end
+      end
+    end
+
+    def self.start_poller
       Thread.new do
         begin
-          watch_project(wr, project_id, since)
-        rescue Errno::EPIPE, IOError
-          # client disconnected — exit cleanly
-        ensure
-          wr.close
+          poller_loop
+        rescue => e
+          warn "ProjectStatusServlet poller error: #{e}"
         end
       end
     end
 
     private
 
-    def watch_project(wr, project_id, since)
+    # Polls all registered watches every POLL_INTERVAL seconds.  Fires and
+    # removes a watch when its project's scheduledAt advances past its since
+    # stamp.  Dead writers (client disconnected) are also pruned.
+    def self.poller_loop
       loop do
-        at = fetch_scheduled_at(project_id)
-        if at && at > since
-          payload = JSON.generate({ 'scheduledAt' => at })
-          wr.write("event: reload\ndata: #{payload}\n\n")
-          return
-        end
         sleep POLL_INTERVAL
+
+        # Snapshot the watch list; release the lock before doing DRb I/O.
+        snapshot = @@watches_mutex.synchronize { @@watches.dup }
+        next if snapshot.empty?
+
+        to_remove = []
+        snapshot.each do |w|
+          begin
+            at = fetch_scheduled_at(w[:project_id])
+            if at && at > w[:since]
+              payload = JSON.generate({ 'scheduledAt' => at })
+              w[:wr].write("event: reload\ndata: #{payload}\n\n")
+              w[:wr].close rescue nil
+              to_remove << w
+            end
+          rescue Errno::EPIPE, IOError
+            w[:wr].close rescue nil
+            to_remove << w
+          end
+        end
+
+        unless to_remove.empty?
+          @@watches_mutex.synchronize { @@watches -= to_remove }
+        end
       end
     end
 
-    def fetch_scheduled_at(project_id)
+    def self.fetch_scheduled_at(project_id)
       # Use DRbObject directly rather than DaemonConnector so we do not
       # start/stop the global DRb service on every poll iteration.
       DRb.start_service('druby://127.0.0.1:0') unless DRb.primary_server
-      broker_uri = "druby://#{@host}:#{@port}"
+      broker_uri = "druby://#{@@drb_host}:#{@@drb_port}"
       broker = DRbObject.new_with_uri(broker_uri)
-      uri, auth_key = broker.getProject(@authKey, project_id)
+      uri, auth_key = broker.getProject(@@auth_key, project_id)
       return nil unless uri
       ps = DRbObject.new(nil, uri)
       at = ps.getScheduledAt(auth_key)

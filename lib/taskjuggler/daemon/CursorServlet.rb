@@ -52,8 +52,12 @@ class TaskJuggler
     # The single shared watcher thread (started once, never restarted).
     @@watcher_thread = nil
 
+    # WEBrick logger — set in initialize so class methods can use it.
+    @@logger = nil
+
     def initialize(config, options)
       super
+      @@logger    = config[:Logger]
       @cursorFile = options[0]
     end
 
@@ -129,7 +133,8 @@ class TaskJuggler
           watcher_loop(cursor_file)
         rescue => e
           # Watcher died unexpectedly — will be restarted on next GET.
-          $stderr.puts "CursorServlet watcher error: #{e}"
+          msg = "CursorServlet watcher error: #{e}"
+          @@logger ? @@logger.error(msg) : warn(msg)
         end
       end
     end

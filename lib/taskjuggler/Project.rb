@@ -636,7 +636,6 @@ class TaskJuggler
     # filled with data. It schedules all scenario and stores the result in the
     # data structures again.
     def schedule
-      @scheduledAt = Time.now
       initScoreboards
 
       [ @accounts, @shifts, @resources, @tasks ].each do |p|
@@ -680,6 +679,7 @@ class TaskJuggler
       end
 
       @timeSheets.warnOnDelta if @warnTsDeltas
+      @scheduledAt = Time.now
       true
     end
 

@@ -1996,6 +1996,8 @@ function initTjChart(dataArg, restoreOpts) {
   render(currentXScale);
   /* Sync left-panel <tr> visibility with any restored collapsed state. */
   if (collapsedIds.size > 0) { applyCollapse(); }
+  /* Restore active task highlight from soft-reload pass-through. */
+  if (restoreOpts.activeTaskId) { window._tjSetActiveTask(restoreOpts.activeTaskId); }
 
   /* Track handlers so they can be removed when initTjChart is called again. */
   var _resizeHandler = function () {
@@ -2025,6 +2027,7 @@ function initTjChart(dataArg, restoreOpts) {
    * the fetch or JSON parse fails. */
   window._tjSoftReload = function () {
     var curCollapsed = Array.from(collapsedIds);
+    var curActiveId  = (activeTaskRowIdx >= 0) ? rows[activeTaskRowIdx].id : null;
     var t  = d3.zoomTransform(svg);
     var xt = d3.zoomIdentity.translate(t.x, 0).scale(t.k).rescaleX(baseXScale);
     var viewL = xt.invert(0).getTime();
@@ -2052,7 +2055,8 @@ function initTjChart(dataArg, restoreOpts) {
         if (metaEl && newStamp) { metaEl.setAttribute('content', newStamp); }
 
         window.tjGanttData = newData;
-        initTjChart(newData, { collapsedIds: curCollapsed, viewL: viewL, viewR: viewR });
+        initTjChart(newData, { collapsedIds: curCollapsed, viewL: viewL, viewR: viewR,
+                               activeTaskId: curActiveId });
 
         if (typeof window._tjRestartWatcher === 'function' && newStamp) {
           window._tjRestartWatcher(newStamp);
