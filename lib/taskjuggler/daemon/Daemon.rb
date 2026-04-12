@@ -69,7 +69,7 @@ class TaskJuggler
 
       # We no longer have a controlling terminal, so these are useless.
       $stdin.reopen('/dev/null')
-      $stdout.reopen(StringIO.new)
+      $stdout.reopen('/dev/null', 'a')
       $stderr.reopen($stdout)
 
       info('daemon_pid',

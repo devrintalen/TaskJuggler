@@ -105,9 +105,9 @@ class TaskJuggler
       # text from the report server. This buffer will contain the generated
       # report as HTML encoded text. They will be send via DRb, so we have to
       # extend them with DRbUndumped.
-      stdOut = StringIO.new('')
+      stdOut = StringIO.new
       stdOut.extend(DRbUndumped)
-      stdErr = StringIO.new('')
+      stdErr = StringIO.new
       stdErr.extend(DRbUndumped)
 
       begin
@@ -172,7 +172,7 @@ class TaskJuggler
               "Cannot get project list from daemon: #{$!}")
       end
 
-      text = "== Welcome to the TaskJuggler Project Server ==\n----\n"
+      text = +"== Welcome to the TaskJuggler Project Server ==\n----\n"
       projects.each do |id|
         if id == projectId
           # Show the list of reports for this project.
