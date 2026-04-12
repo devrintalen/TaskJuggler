@@ -2026,6 +2026,7 @@ function initTjChart(dataArg, restoreOpts) {
    * preserving pan/zoom and collapsed state.  Falls back to location.reload() if
    * the fetch or JSON parse fails. */
   window._tjSoftReload = function () {
+    console.log('[tjchart] _tjSoftReload called (stack: ' + new Error().stack.split('\n')[1].trim() + ')');
     var curCollapsed = Array.from(collapsedIds);
     var curActiveId  = (activeTaskRowIdx >= 0) ? rows[activeTaskRowIdx].id : null;
     var t  = d3.zoomTransform(svg);
@@ -2058,8 +2059,11 @@ function initTjChart(dataArg, restoreOpts) {
         initTjChart(newData, { collapsedIds: curCollapsed, viewL: viewL, viewR: viewR,
                                activeTaskId: curActiveId });
 
+        console.log('[tjchart] softReload fetch done newStamp=' + newStamp);
         if (typeof window._tjRestartWatcher === 'function' && newStamp) {
           window._tjRestartWatcher(newStamp);
+        } else {
+          console.log('[tjchart] WARNING: no _tjRestartWatcher or no newStamp');
         }
       })
       .catch(function () {
@@ -2106,12 +2110,15 @@ initTjChart();
     var es = null;
     var reloading = false;   /* true while a soft-reload fetch is in flight */
     function startWatcher(stamp) {
+      console.log('[tjchart] startWatcher stamp=' + stamp + ' reloading=' + reloading);
       if (es) { es.close(); es = null; }
       reloading = false;   /* new stamp — ready to fire again */
       var url = '/project-status?project=' + encodeURIComponent(projectId) +
                 '&since=' + stamp;
       es = new EventSource(url);
       es.addEventListener('reload', function () {
+        console.log('[tjchart] reload event received reloading=' + reloading +
+                    ' hasSoftReload=' + (typeof window._tjSoftReload === 'function'));
         /* Guard against duplicate fires: the browser's EventSource reconnect
          * timer may re-open the stream (with the old since stamp) before the
          * async fetch completes and _tjRestartWatcher advances the stamp. */
@@ -2119,8 +2126,10 @@ initTjChart();
         reloading = true;
         if (es) { es.close(); es = null; }
         if (typeof window._tjSoftReload === 'function') {
+          console.log('[tjchart] calling _tjSoftReload');
           window._tjSoftReload();
         } else {
+          console.log('[tjchart] falling back to location.reload');
           if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
           location.reload();
         }
@@ -2130,7 +2139,10 @@ initTjChart();
 
     /* Called by _tjSoftReload after re-rendering to advance the since stamp
      * and prevent an immediate re-fire of the reload event. */
-    window._tjRestartWatcher = function (newStamp) { startWatcher(newStamp); };
+    window._tjRestartWatcher = function (newStamp) {
+      console.log('[tjchart] _tjRestartWatcher called newStamp=' + newStamp);
+      startWatcher(newStamp);
+    };
     return;
   }
 
