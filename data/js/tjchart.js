@@ -2104,14 +2104,19 @@ initTjChart();
     if (!projectId) { return; }
 
     var es = null;
+    var reloading = false;   /* true while a soft-reload fetch is in flight */
     function startWatcher(stamp) {
-      if (es) { es.close(); }
+      if (es) { es.close(); es = null; }
+      reloading = false;   /* new stamp — ready to fire again */
       var url = '/project-status?project=' + encodeURIComponent(projectId) +
                 '&since=' + stamp;
       es = new EventSource(url);
       es.addEventListener('reload', function () {
-        /* Close immediately so EventSource does not auto-reconnect with the
-         * old since stamp while the async soft-reload fetch is in flight. */
+        /* Guard against duplicate fires: the browser's EventSource reconnect
+         * timer may re-open the stream (with the old since stamp) before the
+         * async fetch completes and _tjRestartWatcher advances the stamp. */
+        if (reloading) { return; }
+        reloading = true;
         if (es) { es.close(); es = null; }
         if (typeof window._tjSoftReload === 'function') {
           window._tjSoftReload();
