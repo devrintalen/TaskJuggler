@@ -372,7 +372,7 @@ class TaskJuggler
     end
 
     def tool_available?(name)
-      system("which #{name} > /dev/null 2>&1")
+      system('which', name, out: File::NULL, err: File::NULL)
     end
 
     def startHousekeeping

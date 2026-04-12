@@ -42,39 +42,49 @@ class TaskJuggler
   # This prevents both sides from acting on events they themselves wrote.
   class CursorServlet < WEBrick::HTTPServlet::AbstractServlet
 
+    # Protects concurrent POST read-modify-write sequences.
+    @@post_mutex = Mutex.new
+
+    # All active SSE writer ends; guarded by @@writers_mutex.
+    @@writers       = []
+    @@writers_mutex = Mutex.new
+
+    # The single shared watcher thread (started once, never restarted).
+    @@watcher_thread = nil
+
     def initialize(config, options)
       super
       @cursorFile = options[0]
     end
 
     def self.get_instance(config, options)
-      self.new(config, options)
+      new(config, options)
     end
 
     # SSE stream: watch tj-cursor.js and push cursor-pipe changes to the browser.
+    # Registers the writer end of an IO pipe; the class-level watcher broadcasts
+    # to all registered writers so only one inotifywait/fswatch process is needed
+    # regardless of how many SSE connections are open.
     def do_GET(req, res)
       res['Content-Type']      = 'text/event-stream'
       res['Cache-Control']     = 'no-cache'
-      res['X-Accel-Buffering'] = 'no'   # prevent proxy/nginx buffering
+      res['X-Accel-Buffering'] = 'no'
 
       rd, wr = IO.pipe
-      res.body = rd   # WEBrick reads from rd and streams bytes to the client
+      res.body = rd
 
-      Thread.new do
-        begin
-          watch_loop(wr)
-        rescue Errno::EPIPE, IOError
-          # Client disconnected — exit cleanly
-        ensure
-          wr.close
+      @@writers_mutex.synchronize { @@writers << wr }
+
+      # Start the shared watcher the first time a client connects.
+      @@writers_mutex.synchronize do
+        if @@watcher_thread.nil? || !@@watcher_thread.alive?
+          @@watcher_thread = self.class.start_watcher(@cursorFile)
         end
       end
     end
 
     # Write a clicked task ID into the browser pipe of tj-cursor.js.
-    # Reads the current file first so the editor pipe fields are preserved;
-    # this keeps _tjCursorTs unchanged so the SSE watcher does not trigger
-    # a spurious highlight update in the browser.
+    # Serialised with @@post_mutex so concurrent POSTs don't clobber each other.
     def do_POST(req, res)
       begin
         body = JSON.parse(req.body.to_s)
@@ -85,100 +95,120 @@ class TaskJuggler
         return
       end
 
-      current      = File.read(@cursorFile) rescue ''
-      cursor_id    = parse_field(current, '_tjCursorTaskId')
-      cursor_id_js = cursor_id ? cursor_id.inspect : 'null'
-      cursor_ts    = parse_field(current, '_tjCursorTs')&.to_i || 0
-
       task_id  = body['id'].to_s
       click_ts = Time.now.to_i
 
-      content = "window._tjCursorTaskId = #{cursor_id_js};\n"      \
-                "window._tjCursorTs     = #{cursor_ts};\n"           \
-                "window._tjClickTaskId  = #{task_id.inspect};\n"     \
-                "window._tjClickTs      = #{click_ts};\n"
+      @@post_mutex.synchronize do
+        current      = (File.read(@cursorFile) rescue '')
+        cursor_id    = parse_field(current, '_tjCursorTaskId')
+        cursor_id_js = cursor_id ? cursor_id.inspect : 'null'
+        cursor_ts    = parse_field(current, '_tjCursorTs')&.to_i || 0
 
-      # Atomic write via rename so neither the editor nor the SSE watcher
-      # ever reads a partially-written file.
-      tmp = @cursorFile + '.tmp'
-      File.write(tmp, content)
-      File.rename(tmp, @cursorFile)
+        content = "window._tjCursorTaskId = #{cursor_id_js};\n"   \
+                  "window._tjCursorTs     = #{cursor_ts};\n"        \
+                  "window._tjClickTaskId  = #{task_id.inspect};\n"  \
+                  "window._tjClickTs      = #{click_ts};\n"
+
+        # Atomic write via rename so neither the editor nor the SSE watcher
+        # ever reads a partially-written file.
+        tmp = @cursorFile + '.tmp'
+        File.write(tmp, content)
+        File.rename(tmp, @cursorFile)
+      end
 
       res.status = 200
       res['Content-Type'] = 'application/json'
       res.body = '{"ok":true}'
     end
 
+    # Spawns (once) the shared file-watcher thread that broadcasts cursor events
+    # to every registered writer.  Returns the Thread.
+    def self.start_watcher(cursor_file)
+      Thread.new do
+        begin
+          watcher_loop(cursor_file)
+        rescue => e
+          # Watcher died unexpectedly — will be restarted on next GET.
+          $stderr.puts "CursorServlet watcher error: #{e}"
+        end
+      end
+    end
+
     private
 
-    # Watch @cursorFile for changes and push an SSE event to +wr+ on each
-    # change.  Uses kernel-level file notifications where available; falls
-    # back to 100 ms mtime polling on all other platforms.
-    #
-    # Priority:
-    #   1. inotifywait (Linux, inotify-tools)  -- kernel push, zero CPU
-    #   2. fswatch     (macOS/Linux, fswatch)   -- kernel push, zero CPU
-    #   3. mtime poll  (100 ms)                 -- universal fallback
-    def watch_loop(wr)
-      dir  = File.dirname(File.expand_path(@cursorFile))
-      base = File.basename(@cursorFile)
+    # Class-level watcher loop: runs once and fans out to all registered writers.
+    def self.watcher_loop(cursor_file)
+      dir  = File.dirname(File.expand_path(cursor_file))
+      base = File.basename(cursor_file)
 
       if tool_available?('inotifywait')
-        # -m : monitor continuously  -q : no startup banner
-        # -e close_write,moved_to : covers both in-place writes and atomic renames
-        # --format %f : print only the changed filename
         IO.popen(['inotifywait', '-m', '-q',
                   '-e', 'close_write,moved_to',
                   '--format', '%f', dir]) do |io|
           io.each_line do |name|
-            push_cursor_event(wr) if name.chomp == base
+            broadcast(cursor_file) if name.chomp == base
           end
         end
 
       elsif tool_available?('fswatch')
-        IO.popen(['fswatch', File.expand_path(@cursorFile)]) do |io|
-          io.each_line { push_cursor_event(wr) }
+        IO.popen(['fswatch', File.expand_path(cursor_file)]) do |io|
+          io.each_line { broadcast(cursor_file) }
         end
 
       else
         last_mtime = nil
         loop do
-          mtime = File.mtime(@cursorFile) rescue nil
+          mtime = (File.mtime(cursor_file) rescue nil)
           if mtime && mtime != last_mtime
             last_mtime = mtime
-            push_cursor_event(wr)
+            broadcast(cursor_file)
           end
           sleep 0.1
         end
       end
     end
 
-    def push_cursor_event(wr)
-      content   = File.read(@cursorFile) rescue ''
-      cursor_id = parse_field(content, '_tjCursorTaskId')
-      cursor_ts = parse_field(content, '_tjCursorTs')&.to_i || 0
+    # Sends a cursor SSE event to every registered writer, pruning dead ones.
+    def self.broadcast(cursor_file)
+      content   = (File.read(cursor_file) rescue '')
+      cursor_id = parse_field_s(content, '_tjCursorTaskId')
+      cursor_ts = parse_field_s(content, '_tjCursorTs')&.to_i || 0
       payload   = JSON.generate({ 'cursorId' => cursor_id, 'cursorTs' => cursor_ts })
-      wr.write("event: cursor\ndata: #{payload}\n\n")
+      event     = "event: cursor\ndata: #{payload}\n\n"
+
+      @@writers_mutex.synchronize do
+        @@writers.reject! do |wr|
+          begin
+            wr.write(event)
+            false
+          rescue Errno::EPIPE, IOError
+            wr.close rescue nil
+            true   # prune this writer
+          end
+        end
+      end
     end
 
     # Extract the JS-assigned value for +name+ from the file content.
     # Handles string values ("foo.bar") and integer values (1234567890).
     # Returns a Ruby String in both cases, or nil if not found.
-    def parse_field(content, name)
+    def self.parse_field_s(content, name)
       pattern = /window\.#{Regexp.escape(name)}\s*=\s*/
-      # String value: window._tjXxx = "value";
       if (m = content.match(/#{pattern}"([^"]*)"/))
         return m[1]
       end
-      # Integer value: window._tjXxx = 123;
       if (m = content.match(/#{pattern}(\d+)/))
         return m[1]
       end
       nil
     end
 
-    def tool_available?(name)
-      system("which #{name} > /dev/null 2>&1")
+    def parse_field(content, name)
+      self.class.parse_field_s(content, name)
+    end
+
+    def self.tool_available?(name)
+      system('which', name, out: File::NULL, err: File::NULL)
     end
 
   end
