@@ -72,6 +72,19 @@ class TaskJuggler
       end
     end
 
+    # Close all open SSE pipes and stop the poller thread.  Called by
+    # WebServer#stop so WEBrick's connection threads see EOF and can join.
+    def self.shutdown
+      @@watches_mutex.synchronize do
+        @@watches.each { |w| w[:wr].close rescue nil }
+        @@watches.clear
+      end
+      if @@poller_thread
+        @@poller_thread.kill rescue nil
+        @@poller_thread = nil
+      end
+    end
+
     def self.start_poller
       Thread.new do
         begin

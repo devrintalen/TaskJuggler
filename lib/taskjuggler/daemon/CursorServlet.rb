@@ -125,6 +125,19 @@ class TaskJuggler
       res.body = '{"ok":true}'
     end
 
+    # Close all open SSE pipes and stop the watcher thread.  Called by
+    # WebServer#stop so WEBrick's connection threads see EOF and can join.
+    def self.shutdown
+      @@writers_mutex.synchronize do
+        @@writers.each { |wr| wr.close rescue nil }
+        @@writers.clear
+      end
+      if @@watcher_thread
+        @@watcher_thread.kill rescue nil
+        @@watcher_thread = nil
+      end
+    end
+
     # Spawns (once) the shared file-watcher thread that broadcasts cursor events
     # to every registered writer.  Returns the Thread.
     def self.start_watcher(cursor_file)

@@ -140,6 +140,10 @@ EOT
     # Stop the web server.
     def stop
       if @server
+        # Close all SSE pipes before shutting down WEBrick so its connection
+        # threads see EOF and can be joined without blocking indefinitely.
+        CursorServlet.shutdown
+        ProjectStatusServlet.shutdown
         @server.shutdown
         @server = nil
       end
