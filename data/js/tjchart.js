@@ -1980,22 +1980,45 @@
 })();
 
 /* ── Live-reload watcher ──────────────────────────────────────────────────
- * Polls for changes to the generated HTML file and reloads when a new
- * version is detected.  Works for http[s]:// (all browsers) and file://
- * (Firefox; Chrome blocks same-origin file:// fetch).  Falls back to
- * reloading on tab focus/visibility for protocols where fetch is blocked.
+ * http[s]:// (tj3webd) — Subscribes to GET /project-status via SSE.  The
+ *   server pushes a single "reload" event when the project is rescheduled.
+ *   Zero polling overhead; no reload loops.
+ *
+ * file:// — Polls the generated HTML file for a changed tj-generated stamp.
+ *   Works in Firefox; Chrome blocks same-origin file:// fetch, so falls back
+ *   to reloading on tab focus/visibility change.
  */
 (function () {
   'use strict';
 
-  var POLL_MS = 2000;
-
-  /* Read the tj-generated timestamp embedded by TaskJuggler at report-gen time. */
   var metaEl = document.querySelector('meta[name="tj-generated"]');
   if (!metaEl) { return; }   /* not a TaskJuggler report — do nothing */
 
   var initialStamp = metaEl.getAttribute('content');
-  console.log('tjchart: watching for changes (tj-generated=' + initialStamp + ')');
+
+  /* ── SSE path: http[s]:// served by tj3webd ── */
+  if (location.protocol !== 'file:') {
+    /* URLSearchParams only splits on '&'; WEBrick uses ';' as separator too. */
+    var projectId = null;
+    location.search.slice(1).split(/[&;]/).forEach(function (pair) {
+      var eq = pair.indexOf('=');
+      if (eq > 0 && decodeURIComponent(pair.slice(0, eq)) === 'project') {
+        projectId = decodeURIComponent(pair.slice(eq + 1));
+      }
+    });
+    if (!projectId) { return; }
+    var url = '/project-status?project=' + encodeURIComponent(projectId) +
+              '&since=' + initialStamp;
+    var es = new EventSource(url);
+    es.addEventListener('reload', function () {
+      if (typeof window._tjSaveView === 'function') { window._tjSaveView(); }
+      location.reload();
+    });
+    return;
+  }
+
+  /* ── Polling path: file:// ── */
+  var POLL_MS = 2000;
 
   /* Extract the tj-generated content value from a raw HTML string. */
   function extractStamp(html) {

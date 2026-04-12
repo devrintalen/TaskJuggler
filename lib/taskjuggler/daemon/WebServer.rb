@@ -19,6 +19,7 @@ require 'taskjuggler/daemon/Daemon'
 require 'taskjuggler/daemon/WelcomePage'
 require 'taskjuggler/daemon/ReportServlet'
 require 'taskjuggler/daemon/CursorServlet'
+require 'taskjuggler/daemon/ProjectStatusServlet'
 
 class TaskJuggler
 
@@ -93,6 +94,14 @@ class TaskJuggler
       rescue
         fatal('cursor_servlet_mount_failed',
               "Cannot mount WEBrick cursor servlet: #{$!}")
+      end
+
+      begin
+        @server.mount('/project-status', ProjectStatusServlet,
+                      [ @authKey, @host, @port, @uri ])
+      rescue
+        fatal('project_status_mount_failed',
+              "Cannot mount WEBrick project-status servlet: #{$!}")
       end
 
       # Serve some directories via the FileHandler servlet.

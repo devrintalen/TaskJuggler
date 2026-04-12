@@ -433,6 +433,10 @@ EOT
               cntr = 0
             end
 
+            # Automatically reload any projects whose source files have been
+            # marked as modified by their ProjectServer.
+            update
+
             # The housekeeping thread rarely needs to so something. Make
             # sure it's sleeping most of the time.
             sleep 1

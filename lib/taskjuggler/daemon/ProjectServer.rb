@@ -188,6 +188,14 @@ class TaskJuggler
       @tj.projectName
     end
 
+    # Return the Unix timestamp (Integer) of when the project was last
+    # scheduled, or nil if not yet scheduled.
+    def getScheduledAt
+      return nil unless @tj && @tj.project
+      at = @tj.project.scheduledAt
+      at ? at.to_i : nil
+    end
+
     # Return a list of the HTML reports defined for the project.
     def getReportList
       return [] unless @tj && (project = @tj.project)
@@ -390,6 +398,12 @@ class TaskJuggler
       return false unless @server.checkKey(authKey, 'getReportServer')
 
       trap { @server.getReportList }
+    end
+
+    def getScheduledAt(authKey)
+      return false unless @server.checkKey(authKey, 'getScheduledAt')
+
+      trap { @server.getScheduledAt }
     end
 
     def getReportServer(authKey)

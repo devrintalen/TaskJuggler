@@ -187,7 +187,7 @@ class TaskJuggler
                                { 'description' => 'TaskJuggler Report',
                                  'keywords' =>
                                    'taskjuggler, project, management',
-                                 'tj-generated' => Time.now.to_i.to_s },
+                                 'tj-generated' => (@project.scheduledAt || Time.now).to_i.to_s },
                                a('rawHtmlHead'))
       if a('selfcontained')
         auxSrcDir = AppConfig.dataDirs('data/css')[0]
