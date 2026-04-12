@@ -2213,8 +2213,13 @@ initTjChart();
       }
     });
     es.onerror = function () {
-      /* Connection failed immediately (file://, server not running) — fall back. */
-      if (!sseActive) { es.close(); startPolling(); }
+      /* On file://, EventSource is blocked by the browser — fall back to polling.
+       * On http://, a transient failure (server restart, etc.) should recover on
+       * its own via EventSource auto-reconnect, so leave it open. */
+      if (!sseActive && location.protocol === 'file:') {
+        es.close();
+        startPolling();
+      }
     };
   } catch (err) {
     startPolling();
