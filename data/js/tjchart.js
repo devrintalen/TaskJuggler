@@ -868,12 +868,12 @@ function initTjChart(dataArg, restoreOpts) {
             window._tjSetActiveTask(rowRef.id);
           }
 
-          /* 2. Notify the server so it writes the click pipe of tj-cursor.js.
+          /* 2. Notify the server so the editor can jump to this task.
            *    Fails silently when loaded as file:// (no server present). */
           fetch('/cursor', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ id: rowRef.id })
+            body:    JSON.stringify({ id: rowRef.id, source: 'browser' })
           }).catch(function () {});
         });
       });
@@ -2176,89 +2176,32 @@ initTjChart();
   var pollInterval = setInterval(checkForUpdate, POLL_MS);
 })();
 
-/* ── Cursor tracking: SSE (tj3webd) with file:// fallback ────────────────
- * When served by tj3webd, subscribe to GET /cursor as a Server-Sent Event
- * stream.  The server watches tj-cursor.js and pushes {"cursorId","cursorTs"}
- * whenever the editor pipe advances.  The browser only calls _tjSetActiveTask
- * when _tjCursorTs increases, so a browser-click rewrite (which preserves the
- * cursor timestamp) does not trigger a spurious highlight update.
+/* ── Cursor tracking: SSE via tj3webd ────────────────────────────────────
+ * When served by tj3webd, subscribe to GET /cursor/events as a Server-Sent
+ * Event stream.  The server pushes {"id", "ts", "source"} on every cursor
+ * update.  The browser ignores events with source "browser" (its own clicks)
+ * and only highlights when source is "editor" and ts advances.
  *
- * When loaded as file://, EventSource('/cursor') fails immediately and the
- * original 300 ms script-tag poller takes over unchanged.
- *
- * tj-cursor.js carries two pipes, each with a timestamp:
- *   window._tjCursorTaskId = "foo.bar";   // editor→browser: cursor position
- *   window._tjCursorTs     = 1712844002;  // editor→browser: Unix timestamp
- *   window._tjClickTaskId  = "baz.qux";  // browser→editor: clicked task
- *   window._tjClickTs      = 1712844000; // browser→editor: Unix timestamp
+ * Without tj3webd (file:// or static hosting), no cursor sync is available.
  */
 (function () {
   'use strict';
 
-  /* ── SSE path (same-origin, tj3webd) ── */
-  var sseActive    = false;
-  var lastCursorTs = 0;   /* tracks _tjCursorTs; ignores click-triggered SSE fires */
+  if (location.protocol === 'file:') { return; }
+
+  var lastTs = 0;
   try {
-    var es = new EventSource('/cursor');
+    var es = new EventSource('/cursor/events');
     es.addEventListener('cursor', function (e) {
-      sseActive = true;
       var data = JSON.parse(e.data);
-      /* Only act when the CURSOR pipe advanced; a browser click preserves
-       * _tjCursorTs so this guard filters it out. */
-      if ((data.cursorTs || 0) > lastCursorTs) {
-        lastCursorTs = data.cursorTs;
+      if (data.source === 'editor' && (data.ts || 0) > lastTs) {
+        lastTs = data.ts;
         if (typeof window._tjSetActiveTask === 'function') {
-          window._tjSetActiveTask(data.cursorId || null);
+          window._tjSetActiveTask(data.id || null);
         }
       }
     });
-    es.onerror = function () {
-      /* On file://, EventSource is blocked by the browser — fall back to polling.
-       * On http://, a transient failure (server restart, etc.) should recover on
-       * its own via EventSource auto-reconnect, so leave it open. */
-      if (!sseActive && location.protocol === 'file:') {
-        es.close();
-        startPolling();
-      }
-    };
   } catch (err) {
-    startPolling();
-  }
-
-  /* ── Fallback: 300 ms script-tag poller for file:// mode ── */
-  function startPolling() {
-    var CURSOR_POLL_MS = 300;
-    var lastTs  = 0;
-    var pending = false;
-
-    function checkCursor() {
-      if (pending || document.hidden) { return; }
-      pending = true;
-      /* Clear both cursor fields before injecting so onerror reads undefined. */
-      window._tjCursorTaskId = undefined;
-      window._tjCursorTs     = undefined;
-      var script = document.createElement('script');
-      script.src = 'js/tj-cursor.js?t=' + Date.now();
-
-      function done() {
-        pending = false;
-        /* Mirror the SSE logic: act only when _tjCursorTs increases. */
-        var ts     = window._tjCursorTs || 0;
-        var taskId = window._tjCursorTaskId || null;
-        if (ts > lastTs) {
-          lastTs = ts;
-          if (typeof window._tjSetActiveTask === 'function') {
-            window._tjSetActiveTask(taskId);
-          }
-        }
-        if (script.parentNode) { script.parentNode.removeChild(script); }
-      }
-
-      script.onload  = done;
-      script.onerror = done;   /* file not yet present — treat as no change */
-      document.head.appendChild(script);
-    }
-
-    setInterval(checkCursor, CURSOR_POLL_MS);
+    /* No cursor sync available. */
   }
 })();
