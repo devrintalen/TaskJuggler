@@ -293,7 +293,7 @@ class TaskJuggler
     # Spawn a thread that watches the project's input files for changes and
     # calls updateState(:ready, id, true) when one is detected.
     #
-    # Priority (mirrors CursorServlet):
+    # Priority:
     #   1. inotifywait (Linux, inotify-tools)  -- kernel push, zero CPU
     #   2. fswatch     (macOS/Linux, fswatch)   -- kernel push, zero CPU
     #   3. mtime poll  (60 s)                   -- universal fallback
