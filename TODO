@@ -37,9 +37,9 @@ completed.
     - Arrows should stay attached to the start/end of the task bars
       during the animation.
 
-[ ] Synchronize selected task back to taskjuggler-mode.el. Update
+[X] Synchronize selected task back to taskjuggler-mode.el. Update
     selection after a click. Keep the same hover highlighting that
     already exists.
 
-[ ] After M-x recompile in taskjuggler-mode.el, any collapsed rows are
+[X] After M-x recompile in taskjuggler-mode.el, any collapsed rows are
     expanded as soon as the auto refresh happens.
