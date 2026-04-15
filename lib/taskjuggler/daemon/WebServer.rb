@@ -91,8 +91,7 @@ class TaskJuggler
       end
 
       begin
-        cursor_file = File.join(Dir.getwd, 'tj-cursor.js')
-        @server.mount('/cursor', CursorServlet, [ cursor_file ])
+        @server.mount('/cursor', CursorServlet, [])
       rescue
         fatal('cursor_servlet_mount_failed',
               "Cannot mount WEBrick cursor servlet: #{$!}")
