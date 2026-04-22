@@ -388,6 +388,24 @@ EOT
 
             project.state = state
             project.modified = modified
+
+            # If this was a reload attempt that failed, release the
+            # originating record so the auto-updater can retry on the
+            # next real file change.  Otherwise the source sits forever
+            # with reloading=true and modified=true, and new saves are
+            # ignored.
+            if state == :failed && project.files
+              @projects.each do |p|
+                if p != project && p.state == :ready && p.reloading &&
+                   p.files == project.files
+                  p.reloading = false
+                  p.modified = false
+                  debug('', "Reload of #{project.files[1]} failed; " \
+                            "releasing source record for retry")
+                end
+              end
+            end
+
             result = true
             break
           end

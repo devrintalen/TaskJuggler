@@ -326,12 +326,11 @@ class TaskJuggler
                      '--format', '%w%f', *dirs])
       begin
         io.each_line do |line|
+          break if @terminate
           if file_set.include?(line.chomp)
             debug('', "Project #{@tj.projectId} has been modified")
             updateState(:ready, @tj.projectId, true)
-            break
           end
-          break if @terminate || @stateLock.synchronize { @modified }
         end
       ensure
         Process.kill('TERM', io.pid) rescue nil
@@ -345,9 +344,9 @@ class TaskJuggler
       io = IO.popen(['fswatch', *expanded])
       begin
         io.each_line do
+          break if @terminate
           debug('', "Project #{@tj.projectId} has been modified")
           updateState(:ready, @tj.projectId, true)
-          break
         end
       ensure
         Process.kill('TERM', io.pid) rescue nil
@@ -358,13 +357,13 @@ class TaskJuggler
     def watch_with_mtime(files)
       mtimes = files.map { |f| [f, (File.mtime(f) rescue nil)] }.to_h
       loop do
-        return if @terminate || @stateLock.synchronize { @modified }
+        return if @terminate
         mtimes.each do |f, mtime|
           current = File.mtime(f) rescue nil
           if current && current != mtime
             debug('', "Project #{@tj.projectId} has been modified")
             updateState(:ready, @tj.projectId, true)
-            return
+            mtimes[f] = current
           end
         end
         sleep 60
